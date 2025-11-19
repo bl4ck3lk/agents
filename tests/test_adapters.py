@@ -44,3 +44,59 @@ def test_adapter_interface() -> None:
     # Test get_schema
     schema = adapter.get_schema()
     assert schema == {"type": "mock"}
+
+
+import csv
+from pathlib import Path
+
+from agents.adapters.csv_adapter import CSVAdapter
+
+
+def test_csv_adapter_read(tmp_path: Path) -> None:
+    """Test CSV adapter reads data correctly."""
+    # Create sample CSV
+    csv_file = tmp_path / "test.csv"
+    csv_file.write_text("id,text\n1,hello\n2,world\n")
+
+    adapter = CSVAdapter(str(csv_file), str(tmp_path / "output.csv"))
+    units = list(adapter.read_units())
+
+    assert len(units) == 2
+    assert units[0] == {"id": "1", "text": "hello"}
+    assert units[1] == {"id": "2", "text": "world"}
+
+
+def test_csv_adapter_write(tmp_path: Path) -> None:
+    """Test CSV adapter writes results correctly."""
+    input_file = tmp_path / "input.csv"
+    output_file = tmp_path / "output.csv"
+    input_file.write_text("id,text\n1,hello\n2,world\n")
+
+    adapter = CSVAdapter(str(input_file), str(output_file))
+    results = [
+        {"id": "1", "text": "hello", "result": "hola"},
+        {"id": "2", "text": "world", "result": "mundo"},
+    ]
+
+    adapter.write_results(results)
+
+    # Verify output
+    with open(output_file) as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    assert len(rows) == 2
+    assert rows[0] == {"id": "1", "text": "hello", "result": "hola"}
+    assert rows[1] == {"id": "2", "text": "world", "result": "mundo"}
+
+
+def test_csv_adapter_get_schema(tmp_path: Path) -> None:
+    """Test CSV adapter returns schema."""
+    csv_file = tmp_path / "test.csv"
+    csv_file.write_text("id,text,category\n1,hello,greeting\n")
+
+    adapter = CSVAdapter(str(csv_file), str(tmp_path / "output.csv"))
+    schema = adapter.get_schema()
+
+    assert schema["columns"] == ["id", "text", "category"]
+    assert schema["type"] == "csv"
