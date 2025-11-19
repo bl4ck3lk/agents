@@ -9,7 +9,11 @@ class ProgressTracker:
     """Track processing progress and save checkpoints."""
 
     def __init__(
-        self, total: int, checkpoint_dir: str, job_id: str = "default", checkpoint_interval: int = 100
+        self,
+        total: int,
+        checkpoint_dir: str,
+        job_id: str = "default",
+        checkpoint_interval: int = 100,
     ) -> None:
         """
         Initialize progress tracker.
@@ -75,9 +79,7 @@ class ProgressTracker:
         with open(checkpoint_file) as f:
             data = json.load(f)
 
-        tracker = cls(
-            total=data["total"], checkpoint_dir=checkpoint_dir, job_id=data["job_id"]
-        )
+        tracker = cls(total=data["total"], checkpoint_dir=checkpoint_dir, job_id=data["job_id"])
         tracker.processed = data["processed"]
         tracker.failed = data.get("failed", 0)
 

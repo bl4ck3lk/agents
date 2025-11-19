@@ -68,7 +68,9 @@ def process(
         llm_client = LLMClient(api_key=api_key, model=model)
         prompt_template = PromptTemplate(prompt)
 
-        processing_mode = ProcessingMode.SEQUENTIAL if mode == "sequential" else ProcessingMode.ASYNC
+        processing_mode = (
+            ProcessingMode.SEQUENTIAL if mode == "sequential" else ProcessingMode.ASYNC
+        )
         engine = ProcessingEngine(
             llm_client, prompt_template, mode=processing_mode, batch_size=batch_size
         )

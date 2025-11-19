@@ -1,8 +1,8 @@
 """CSV data adapter."""
 
 import csv
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from agents.adapters.base import DataAdapter
 

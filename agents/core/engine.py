@@ -1,7 +1,8 @@
 """Processing engine for batch LLM operations."""
 
+from collections.abc import Iterator
 from enum import Enum
-from typing import Any, Iterator
+from typing import Any
 
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate

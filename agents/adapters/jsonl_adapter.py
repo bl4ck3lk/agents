@@ -1,8 +1,9 @@
 """JSONL (JSON Lines) data adapter."""
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from agents.adapters.base import DataAdapter
 
