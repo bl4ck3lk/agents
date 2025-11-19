@@ -1,10 +1,13 @@
 """Tests for data adapters."""
 
-from typing import Iterator
+import csv
+from pathlib import Path
+from typing import Any, Iterator
 
 import pytest
 
 from agents.adapters.base import DataAdapter
+from agents.adapters.csv_adapter import CSVAdapter
 
 
 class MockAdapter(DataAdapter):
@@ -22,7 +25,7 @@ class MockAdapter(DataAdapter):
         """Store results."""
         self.results = results
 
-    def get_schema(self) -> dict[str, str]:
+    def get_schema(self) -> dict[str, Any]:
         """Get schema."""
         return {"type": "mock"}
 
@@ -44,12 +47,6 @@ def test_adapter_interface() -> None:
     # Test get_schema
     schema = adapter.get_schema()
     assert schema == {"type": "mock"}
-
-
-import csv
-from pathlib import Path
-
-from agents.adapters.csv_adapter import CSVAdapter
 
 
 def test_csv_adapter_read(tmp_path: Path) -> None:

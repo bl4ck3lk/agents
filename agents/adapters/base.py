@@ -1,7 +1,7 @@
 """Base adapter interface for data sources."""
 
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Any, Iterator
 
 
 class DataAdapter(ABC):
@@ -28,7 +28,7 @@ class DataAdapter(ABC):
         pass
 
     @abstractmethod
-    def get_schema(self) -> dict[str, str]:
+    def get_schema(self) -> dict[str, Any]:
         """
         Get schema information about the data source.
 
