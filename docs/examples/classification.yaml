@@ -1,0 +1,20 @@
+# Example: Classify text into categories
+
+llm:
+  model: gpt-4o-mini
+  temperature: 0.2
+  max_tokens: 50
+
+processing:
+  mode: async
+  batch_size: 20
+
+prompt: |
+  Classify the following text into one of these categories: Technology, Business, Sports, Entertainment
+
+  Text: {text}
+
+  Category:
+
+output:
+  format: text
