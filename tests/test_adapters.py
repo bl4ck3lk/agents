@@ -10,6 +10,7 @@ import pytest
 from agents.adapters.base import DataAdapter
 from agents.adapters.csv_adapter import CSVAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
+from agents.adapters.text_adapter import TextAdapter
 
 
 class MockAdapter(DataAdapter):
@@ -133,3 +134,37 @@ def test_jsonl_adapter_write(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert json.loads(lines[0]) == {"id": "1", "result": "hola"}
     assert json.loads(lines[1]) == {"id": "2", "result": "mundo"}
+
+
+def test_text_adapter_read(tmp_path: Path) -> None:
+    """Test text adapter reads lines correctly."""
+    text_file = tmp_path / "test.txt"
+    text_file.write_text("hello\nworld\n")
+
+    adapter = TextAdapter(str(text_file), str(tmp_path / "output.txt"))
+    units = list(adapter.read_units())
+
+    assert len(units) == 2
+    assert units[0] == {"line_number": 1, "content": "hello"}
+    assert units[1] == {"line_number": 2, "content": "world"}
+
+
+def test_text_adapter_write(tmp_path: Path) -> None:
+    """Test text adapter writes results correctly."""
+    input_file = tmp_path / "input.txt"
+    output_file = tmp_path / "output.txt"
+    input_file.write_text("hello\nworld\n")
+
+    adapter = TextAdapter(str(input_file), str(output_file))
+    results = [
+        {"line_number": 1, "content": "hello", "result": "hola"},
+        {"line_number": 2, "content": "world", "result": "mundo"},
+    ]
+
+    adapter.write_results(results)
+
+    # Verify output - should write just the result field
+    lines = output_file.read_text().strip().split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "hola"
+    assert lines[1] == "mundo"
