@@ -2,6 +2,7 @@
 
 import csv
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -10,6 +11,7 @@ import pytest
 from agents.adapters.base import DataAdapter
 from agents.adapters.csv_adapter import CSVAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
+from agents.adapters.sqlite_adapter import SQLiteAdapter
 from agents.adapters.text_adapter import TextAdapter
 
 
@@ -168,3 +170,24 @@ def test_text_adapter_write(tmp_path: Path) -> None:
     assert len(lines) == 2
     assert lines[0] == "hola"
     assert lines[1] == "mundo"
+
+
+def test_sqlite_adapter_read(tmp_path: Path) -> None:
+    """Test SQLite adapter reads data correctly."""
+    db_file = tmp_path / "test.db"
+
+    # Create test database
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE words (id INTEGER, word TEXT)")
+    conn.execute("INSERT INTO words VALUES (1, 'hello'), (2, 'world')")
+    conn.commit()
+    conn.close()
+
+    adapter = SQLiteAdapter(
+        f"sqlite://{db_file}?query=SELECT * FROM words", str(tmp_path / "output.db")
+    )
+    units = list(adapter.read_units())
+
+    assert len(units) == 2
+    assert units[0] == {"id": "1", "word": "hello"}
+    assert units[1] == {"id": "2", "word": "world"}
