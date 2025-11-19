@@ -1,6 +1,7 @@
 """Tests for data adapters."""
 
 import csv
+import json
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -8,6 +9,7 @@ import pytest
 
 from agents.adapters.base import DataAdapter
 from agents.adapters.csv_adapter import CSVAdapter
+from agents.adapters.jsonl_adapter import JSONLAdapter
 
 
 class MockAdapter(DataAdapter):
@@ -97,3 +99,37 @@ def test_csv_adapter_get_schema(tmp_path: Path) -> None:
 
     assert schema["columns"] == ["id", "text", "category"]
     assert schema["type"] == "csv"
+
+
+def test_jsonl_adapter_read(tmp_path: Path) -> None:
+    """Test JSONL adapter reads data correctly."""
+    jsonl_file = tmp_path / "test.jsonl"
+    jsonl_file.write_text('{"id": "1", "text": "hello"}\n{"id": "2", "text": "world"}\n')
+
+    adapter = JSONLAdapter(str(jsonl_file), str(tmp_path / "output.jsonl"))
+    units = list(adapter.read_units())
+
+    assert len(units) == 2
+    assert units[0] == {"id": "1", "text": "hello"}
+    assert units[1] == {"id": "2", "text": "world"}
+
+
+def test_jsonl_adapter_write(tmp_path: Path) -> None:
+    """Test JSONL adapter writes results correctly."""
+    input_file = tmp_path / "input.jsonl"
+    output_file = tmp_path / "output.jsonl"
+    input_file.write_text('{"id": "1"}\n{"id": "2"}\n')
+
+    adapter = JSONLAdapter(str(input_file), str(output_file))
+    results = [
+        {"id": "1", "result": "hola"},
+        {"id": "2", "result": "mundo"},
+    ]
+
+    adapter.write_results(results)
+
+    # Verify output
+    lines = output_file.read_text().strip().split("\n")
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == {"id": "1", "result": "hola"}
+    assert json.loads(lines[1]) == {"id": "2", "result": "mundo"}
