@@ -1,0 +1,17 @@
+# Example: Summarize text content
+
+llm:
+  model: gpt-4o-mini
+  temperature: 0.5
+  max_tokens: 150
+
+processing:
+  mode: async
+  batch_size: 5
+
+prompt: |
+  Summarize the following text in 1-2 sentences:
+
+  {content}
+
+  Summary:
