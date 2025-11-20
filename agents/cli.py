@@ -18,6 +18,7 @@ from agents import __version__
 from agents.adapters.csv_adapter import CSVAdapter
 from agents.adapters.json_adapter import JSONAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
+from agents.adapters.sqlite_adapter import SQLiteAdapter
 from agents.adapters.text_adapter import TextAdapter
 from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
@@ -34,7 +35,12 @@ def cli() -> None:
 
 
 def get_adapter(input_path: str, output_path: str):
-    """Get appropriate adapter based on file extension."""
+    """Get appropriate adapter based on file extension or URI scheme."""
+    # Check if it's a SQLite URI
+    if input_path.startswith("sqlite://"):
+        return SQLiteAdapter(input_path, output_path)
+
+    # Otherwise, detect by file extension
     ext = Path(input_path).suffix.lower()
 
     if ext == ".csv":

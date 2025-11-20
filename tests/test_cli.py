@@ -1,12 +1,13 @@
 """Tests for CLI interface."""
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 import yaml
 from click.testing import CliRunner
 
-from agents.cli import cli
+from agents.cli import cli, get_adapter
 
 
 @pytest.fixture
@@ -173,3 +174,59 @@ def test_resume_command_with_invalid_job_id(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["resume", "invalid_job_id", "--api-key", "test-key"])
     assert result.exit_code != 0
     assert "not found" in result.output.lower() or "error" in result.output.lower()
+
+
+def test_get_adapter_sqlite_uri(tmp_path: Path) -> None:
+    """Test that get_adapter detects and handles sqlite:// URIs."""
+    from agents.adapters.sqlite_adapter import SQLiteAdapter
+
+    # Create a sample SQLite database
+    db_file = tmp_path / "test.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE data (id INTEGER, text TEXT)")
+    conn.execute("INSERT INTO data VALUES (1, 'hello')")
+    conn.commit()
+    conn.close()
+
+    # Test with sqlite:// URI
+    sqlite_uri = f"sqlite://{db_file}?query=SELECT * FROM data"
+    output_path = str(tmp_path / "output.db")
+
+    adapter = get_adapter(sqlite_uri, output_path)
+
+    assert isinstance(adapter, SQLiteAdapter)
+    units = list(adapter.read_units())
+    assert len(units) == 1
+    assert units[0] == {"id": "1", "text": "hello"}
+
+
+def test_get_adapter_file_extensions(tmp_path: Path) -> None:
+    """Test that get_adapter returns correct adapter for different file extensions."""
+    from agents.adapters.csv_adapter import CSVAdapter
+    from agents.adapters.json_adapter import JSONAdapter
+    from agents.adapters.jsonl_adapter import JSONLAdapter
+    from agents.adapters.text_adapter import TextAdapter
+
+    # Create sample files
+    (tmp_path / "test.csv").write_text("col1\nval1\n")
+    (tmp_path / "test.json").write_text('{"key": "value"}')
+    (tmp_path / "test.jsonl").write_text('{"key": "value"}\n')
+    (tmp_path / "test.txt").write_text("hello\n")
+
+    output_path = str(tmp_path / "output")
+
+    # Test CSV
+    adapter = get_adapter(str(tmp_path / "test.csv"), f"{output_path}.csv")
+    assert isinstance(adapter, CSVAdapter)
+
+    # Test JSON
+    adapter = get_adapter(str(tmp_path / "test.json"), f"{output_path}.json")
+    assert isinstance(adapter, JSONAdapter)
+
+    # Test JSONL
+    adapter = get_adapter(str(tmp_path / "test.jsonl"), f"{output_path}.jsonl")
+    assert isinstance(adapter, JSONLAdapter)
+
+    # Test TXT
+    adapter = get_adapter(str(tmp_path / "test.txt"), f"{output_path}.txt")
+    assert isinstance(adapter, TextAdapter)
