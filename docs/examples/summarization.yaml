@@ -15,6 +15,3 @@ prompt: |
   {content}
 
   Summary:
-
-output:
-  format: text

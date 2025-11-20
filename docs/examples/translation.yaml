@@ -1,16 +1,13 @@
 # Example configuration for translation task
 
 llm:
-  provider: openai
   model: gpt-4o-mini
-  api_key: ${OPENAI_API_KEY}
   temperature: 0.3
   max_tokens: 200
 
 processing:
   mode: async
   batch_size: 10
-  max_retries: 3
 
 prompt: |
   Translate the following word to Spanish, French, and German.
@@ -18,7 +15,3 @@ prompt: |
 
   Return ONLY valid JSON in this format:
   {"es": "spanish", "fr": "french", "de": "german"}
-
-output:
-  format: json
-  merge_strategy: extend

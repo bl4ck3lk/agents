@@ -15,6 +15,3 @@ prompt: |
   Text: {text}
 
   Category:
-
-output:
-  format: text
