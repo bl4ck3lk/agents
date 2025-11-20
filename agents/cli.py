@@ -16,6 +16,7 @@ from rich.progress import (
 
 from agents import __version__
 from agents.adapters.csv_adapter import CSVAdapter
+from agents.adapters.json_adapter import JSONAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
 from agents.adapters.text_adapter import TextAdapter
 from agents.core.engine import ProcessingEngine, ProcessingMode
@@ -38,6 +39,8 @@ def get_adapter(input_path: str, output_path: str):
 
     if ext == ".csv":
         return CSVAdapter(input_path, output_path)
+    elif ext == ".json":
+        return JSONAdapter(input_path, output_path)
     elif ext == ".jsonl":
         return JSONLAdapter(input_path, output_path)
     elif ext == ".txt":

@@ -191,3 +191,69 @@ def test_sqlite_adapter_read(tmp_path: Path) -> None:
     assert len(units) == 2
     assert units[0] == {"id": "1", "word": "hello"}
     assert units[1] == {"id": "2", "word": "world"}
+
+
+def test_json_adapter_read_array(tmp_path: Path) -> None:
+    """Test JSON adapter reads array correctly."""
+    from agents.adapters.json_adapter import JSONAdapter
+
+    json_file = tmp_path / "test.json"
+    json_file.write_text('[{"id": 1, "text": "hello"}, {"id": 2, "text": "world"}]')
+
+    adapter = JSONAdapter(str(json_file), str(tmp_path / "output.json"))
+    units = list(adapter.read_units())
+
+    assert len(units) == 2
+    assert units[0] == {"id": 1, "text": "hello"}
+    assert units[1] == {"id": 2, "text": "world"}
+
+
+def test_json_adapter_read_single_object(tmp_path: Path) -> None:
+    """Test JSON adapter reads single object correctly."""
+    from agents.adapters.json_adapter import JSONAdapter
+
+    json_file = tmp_path / "test.json"
+    json_file.write_text('{"id": 1, "text": "hello"}')
+
+    adapter = JSONAdapter(str(json_file), str(tmp_path / "output.json"))
+    units = list(adapter.read_units())
+
+    assert len(units) == 1
+    assert units[0] == {"id": 1, "text": "hello"}
+
+
+def test_json_adapter_write_array(tmp_path: Path) -> None:
+    """Test JSON adapter writes results as array."""
+    from agents.adapters.json_adapter import JSONAdapter
+
+    input_file = tmp_path / "input.json"
+    output_file = tmp_path / "output.json"
+    input_file.write_text('[{"id": 1}, {"id": 2}]')
+
+    adapter = JSONAdapter(str(input_file), str(output_file))
+    results = [
+        {"id": 1, "result": "hola"},
+        {"id": 2, "result": "mundo"},
+    ]
+
+    adapter.write_results(results)
+
+    # Verify output
+    output_data = json.loads(output_file.read_text())
+    assert len(output_data) == 2
+    assert output_data[0] == {"id": 1, "result": "hola"}
+    assert output_data[1] == {"id": 2, "result": "mundo"}
+
+
+def test_json_adapter_get_schema(tmp_path: Path) -> None:
+    """Test JSON adapter returns schema."""
+    from agents.adapters.json_adapter import JSONAdapter
+
+    json_file = tmp_path / "test.json"
+    json_file.write_text('[{"id": 1, "text": "hello"}]')
+
+    adapter = JSONAdapter(str(json_file), str(tmp_path / "output.json"))
+    schema = adapter.get_schema()
+
+    assert schema["type"] == "json"
+    assert schema["format"] == "array"
