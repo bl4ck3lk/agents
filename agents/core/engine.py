@@ -1,5 +1,6 @@
 """Processing engine for batch LLM operations."""
 
+import asyncio
 from collections.abc import Iterator
 from enum import Enum
 from typing import Any
@@ -52,7 +53,7 @@ class ProcessingEngine:
         if self.mode == ProcessingMode.SEQUENTIAL:
             yield from self._process_sequential(units)
         else:
-            raise NotImplementedError("Async mode not yet implemented")
+            yield from self._process_async(units)
 
     def _process_sequential(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """Process units sequentially."""
@@ -63,3 +64,44 @@ class ProcessingEngine:
                 yield {**unit, "result": result}
             except Exception as e:
                 yield {**unit, "error": str(e)}
+
+    def _process_async(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+        """Process units asynchronously using batch processing."""
+        # Create new event loop for async processing
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            results = loop.run_until_complete(self._process_async_batch(units))
+            yield from results
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+
+    async def _process_async_batch(self, units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Process units asynchronously with concurrency control.
+
+        Args:
+            units: List of data units to process.
+
+        Returns:
+            List of processed results.
+        """
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(self.batch_size)
+
+        async def process_unit(unit: dict[str, Any]) -> dict[str, Any]:
+            """Process a single unit with semaphore control."""
+            async with semaphore:
+                try:
+                    prompt = self.prompt_template.render(unit)
+                    result = await self.llm_client.complete_async(prompt)
+                    return {**unit, "result": result}
+                except Exception as e:
+                    return {**unit, "error": str(e)}
+
+        # Process all units concurrently with semaphore limiting concurrency
+        tasks = [process_unit(unit) for unit in units]
+        results = await asyncio.gather(*tasks)
+
+        return results
