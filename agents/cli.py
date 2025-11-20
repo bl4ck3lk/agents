@@ -1,9 +1,18 @@
 """CLI interface for agents."""
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from agents import __version__
 from agents.adapters.csv_adapter import CSVAdapter
@@ -13,6 +22,7 @@ from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
 from agents.utils.config import load_config
+from agents.utils.progress import ProgressTracker
 
 
 @click.group()
@@ -100,12 +110,45 @@ def process(
         # Process data
         click.echo(f"Processing {input_file} -> {output_file}")
         units = list(adapter.read_units())
-        click.echo(f"Found {len(units)} units to process")
+        total_units = len(units)
+        click.echo(f"Found {total_units} units to process")
 
-        results = list(engine.process(units))
+        # Initialize progress tracker
+        job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        checkpoint_dir = Path.cwd() / ".checkpoints"
+        tracker = ProgressTracker(
+            total=total_units,
+            checkpoint_dir=str(checkpoint_dir),
+            job_id=job_id,
+            checkpoint_interval=100,
+        )
+
+        # Process with progress bar
+        results = []
+        with Progress(
+            TextColumn("[bold blue]Processing:"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task("Processing", total=total_units)
+
+            for result in engine.process(units):
+                results.append(result)
+                if "error" in result:
+                    tracker.increment_failed()
+                tracker.update(1)
+                progress.update(task, advance=1)
+
+        # Final checkpoint
+        tracker.save_checkpoint()
         adapter.write_results(results)
 
-        click.echo(f"Successfully processed {len(results)} units")
+        click.echo(f"\nSuccessfully processed {len(results)} units")
+        click.echo(f"Job ID: {job_id}")
+        if tracker.failed > 0:
+            click.echo(f"Failed: {tracker.failed} units", err=True)
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
