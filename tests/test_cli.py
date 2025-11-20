@@ -152,3 +152,24 @@ def test_process_shows_progress_output(
     # Should show job ID even if API call fails
     # The implementation creates a job_id, so we just verify the command structure works
     assert result.exit_code in [0, 1]
+
+
+def test_resume_command_exists(runner: CliRunner) -> None:
+    """Test that resume command exists."""
+    result = runner.invoke(cli, ["resume", "--help"])
+    assert result.exit_code == 0
+    assert "resume" in result.output.lower()
+    assert "job" in result.output.lower()
+
+
+def test_resume_command_requires_job_id(runner: CliRunner) -> None:
+    """Test that resume command requires job_id."""
+    result = runner.invoke(cli, ["resume"])
+    assert result.exit_code != 0
+
+
+def test_resume_command_with_invalid_job_id(runner: CliRunner) -> None:
+    """Test that resume command fails with invalid job_id."""
+    result = runner.invoke(cli, ["resume", "invalid_job_id", "--api-key", "test-key"])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower() or "error" in result.output.lower()

@@ -14,6 +14,7 @@ class ProgressTracker:
         checkpoint_dir: str,
         job_id: str = "default",
         checkpoint_interval: int = 100,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize progress tracker.
@@ -23,6 +24,7 @@ class ProgressTracker:
             checkpoint_dir: Directory for checkpoint files.
             job_id: Unique job identifier.
             checkpoint_interval: Save checkpoint every N units.
+            metadata: Additional metadata to save (e.g., config, file paths).
         """
         self.total = total
         self.processed = 0
@@ -30,6 +32,7 @@ class ProgressTracker:
         self.checkpoint_dir = Path(checkpoint_dir)
         self.job_id = job_id
         self.checkpoint_interval = checkpoint_interval
+        self.metadata = metadata or {}
 
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -57,6 +60,7 @@ class ProgressTracker:
             "total": self.total,
             "failed": self.failed,
             "job_id": self.job_id,
+            "metadata": self.metadata,
         }
 
         with open(checkpoint_file, "w") as f:
@@ -79,7 +83,12 @@ class ProgressTracker:
         with open(checkpoint_file) as f:
             data = json.load(f)
 
-        tracker = cls(total=data["total"], checkpoint_dir=checkpoint_dir, job_id=data["job_id"])
+        tracker = cls(
+            total=data["total"],
+            checkpoint_dir=checkpoint_dir,
+            job_id=data["job_id"],
+            metadata=data.get("metadata", {}),
+        )
         tracker.processed = data["processed"]
         tracker.failed = data.get("failed", 0)
 
