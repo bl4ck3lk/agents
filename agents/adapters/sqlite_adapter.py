@@ -1,6 +1,7 @@
 """SQLite database adapter."""
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -25,18 +26,18 @@ class SQLiteAdapter(DataAdapter):
         self.query = query_params.get("query", ["SELECT * FROM data"])[0]
         self.output_path = Path(output_path)
 
-    def read_units(self):
+    def read_units(self) -> Iterator[dict[str, Any]]:
         """Read database rows as data units."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(self.query)
 
         for row in cursor:
-            yield {key: str(row[key]) for key in row.keys()}
+            yield {key: str(row[key]) for key in row}
 
         conn.close()
 
-    def write_results(self, results: list[dict[str, str]]) -> None:
+    def write_results(self, results: list[dict[str, Any]]) -> None:
         """Write results to SQLite database."""
         if not results:
             return
@@ -47,7 +48,9 @@ class SQLiteAdapter(DataAdapter):
         # Create table from first result
         columns = list(results[0].keys())
         placeholders = ", ".join(["?" for _ in columns])
-        create_sql = f"CREATE TABLE IF NOT EXISTS results ({', '.join(f'{col} TEXT' for col in columns)})"
+        create_sql = (
+            f"CREATE TABLE IF NOT EXISTS results ({', '.join(f'{col} TEXT' for col in columns)})"
+        )
         insert_sql = f"INSERT INTO results VALUES ({placeholders})"
 
         conn.execute(create_sql)

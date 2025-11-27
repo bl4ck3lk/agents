@@ -49,8 +49,9 @@ class JSONAdapter(DataAdapter):
         Args:
             results: List of result dictionaries to write.
         """
-        with open(self.output_path, "w") as f:
-            json.dump(results, f, indent=2)
+        # Encoding must be utf-8 to handle non-ASCII characters
+        with open(self.output_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
 
     def get_schema(self) -> dict[str, Any]:
         """

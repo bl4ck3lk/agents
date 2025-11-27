@@ -1,9 +1,16 @@
 """Configuration management."""
 
 import os
+from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+
+# Load .env file when this module is imported
+# Look for .env in the project root (parent of agents package)
+project_root = Path(__file__).parent.parent.parent
+load_dotenv(project_root / ".env")
 
 
 class LLMConfig(BaseModel):

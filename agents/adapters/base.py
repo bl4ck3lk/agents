@@ -9,7 +9,7 @@ class DataAdapter(ABC):
     """Abstract base class for data adapters."""
 
     @abstractmethod
-    def read_units(self) -> Iterator[dict[str, str]]:
+    def read_units(self) -> Iterator[dict[str, Any]]:
         """
         Read data units from source.
 
@@ -19,7 +19,7 @@ class DataAdapter(ABC):
         pass
 
     @abstractmethod
-    def write_results(self, results: list[dict[str, str]]) -> None:
+    def write_results(self, results: list[dict[str, Any]]) -> None:
         """
         Write processed results to output.
 

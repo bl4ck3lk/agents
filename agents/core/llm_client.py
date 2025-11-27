@@ -1,6 +1,5 @@
 """LLM client wrapper for OpenAI API."""
 
-import asyncio
 from typing import Any
 
 from openai import APIError, AsyncOpenAI, OpenAI, RateLimitError
@@ -98,3 +97,6 @@ class LLMClient:
                 )
 
                 return response.choices[0].message.content or ""
+
+        # This should never be reached due to AsyncRetrying behavior
+        raise RuntimeError("Async retry loop exited unexpectedly")

@@ -80,7 +80,11 @@ def test_process_with_config_flag(
 
     # Should fail with authentication error (expected since we're using fake key)
     # But should successfully parse config
-    assert "--config" in result.output or "config" in result.output.lower() or result.exit_code in [0, 1]
+    assert (
+        "--config" in result.output
+        or "config" in result.output.lower()
+        or result.exit_code in [0, 1]
+    )
 
 
 def test_config_overrides_cli_args(

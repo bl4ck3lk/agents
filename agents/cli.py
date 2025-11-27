@@ -1,10 +1,13 @@
 """CLI interface for agents."""
 
+import json
+import random
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -15,6 +18,7 @@ from rich.progress import (
 )
 
 from agents import __version__
+from agents.adapters.base import DataAdapter
 from agents.adapters.csv_adapter import CSVAdapter
 from agents.adapters.json_adapter import JSONAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
@@ -24,7 +28,11 @@ from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
 from agents.utils.config import load_config
+from agents.utils.incremental_writer import IncrementalWriter
 from agents.utils.progress import ProgressTracker
+
+# Load .env file for environment variables (API keys, etc.)
+load_dotenv()
 
 
 @click.group()
@@ -34,7 +42,7 @@ def cli() -> None:
     pass
 
 
-def get_adapter(input_path: str, output_path: str):
+def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     """Get appropriate adapter based on file extension or URI scheme."""
     # Check if it's a SQLite URI
     if input_path.startswith("sqlite://"):
@@ -62,12 +70,37 @@ def get_adapter(input_path: str, output_path: str):
 @click.option("--prompt", help="Prompt template with {field} placeholders")
 @click.option("--model", help="LLM model to use")
 @click.option("--api-key", envvar="OPENAI_API_KEY", help="OpenAI API key")
+@click.option("--base-url", envvar="OPENAI_BASE_URL", help="API base URL (for OpenRouter, etc.)")
 @click.option(
     "--mode",
     type=click.Choice(["sequential", "async"]),
     help="Processing mode",
 )
 @click.option("--batch-size", type=int, help="Batch size for async mode")
+@click.option(
+    "--no-post-process",
+    is_flag=True,
+    default=False,
+    help="Disable post-processing of LLM output (extract JSON from markdown)",
+)
+@click.option(
+    "--no-merge",
+    is_flag=True,
+    default=False,
+    help="Do not merge parsed JSON fields into root (keep in 'parsed' field)",
+)
+@click.option(
+    "--include-raw",
+    is_flag=True,
+    default=False,
+    help="Include raw LLM output in result",
+)
+@click.option(
+    "--preview",
+    type=int,
+    default=0,
+    help="Preview K random units before processing all",
+)
 def process(
     input_file: str,
     output_file: str,
@@ -75,8 +108,13 @@ def process(
     prompt: str | None,
     model: str | None,
     api_key: str | None,
+    base_url: str | None,
     mode: str | None,
     batch_size: int | None,
+    no_post_process: bool,
+    no_merge: bool,
+    include_raw: bool,
+    preview: int,
 ) -> None:
     """Process INPUT_FILE and save results to OUTPUT_FILE."""
     # Load config if provided
@@ -85,7 +123,8 @@ def process(
         # CLI args override config values
         final_prompt = prompt or job_config.prompt
         final_model = model or job_config.llm.model
-        final_api_key = api_key or job_config.llm.api_key
+        final_api_key = api_key or job_config.llm.api_key or ""
+        final_base_url = base_url or job_config.llm.base_url
         final_mode = mode or job_config.processing.mode
         final_batch_size = batch_size or job_config.processing.batch_size
     else:
@@ -95,7 +134,8 @@ def process(
             sys.exit(1)
         final_prompt = prompt
         final_model = model or "gpt-4o-mini"
-        final_api_key = api_key
+        final_api_key = api_key or ""
+        final_base_url = base_url
         final_mode = mode or "sequential"
         final_batch_size = batch_size or 10
 
@@ -106,14 +146,20 @@ def process(
     try:
         # Initialize components
         adapter = get_adapter(input_file, output_file)
-        llm_client = LLMClient(api_key=final_api_key, model=final_model)
+        llm_client = LLMClient(api_key=final_api_key, model=final_model, base_url=final_base_url)
         prompt_template = PromptTemplate(final_prompt)
 
         processing_mode = (
             ProcessingMode.SEQUENTIAL if final_mode == "sequential" else ProcessingMode.ASYNC
         )
         engine = ProcessingEngine(
-            llm_client, prompt_template, mode=processing_mode, batch_size=final_batch_size
+            llm_client,
+            prompt_template,
+            mode=processing_mode,
+            batch_size=final_batch_size,
+            post_process=not no_post_process,
+            merge_results=not no_merge,
+            include_raw_result=include_raw,
         )
 
         # Process data
@@ -122,8 +168,38 @@ def process(
         total_units = len(units)
         click.echo(f"Found {total_units} units to process")
 
-        # Initialize progress tracker
-        job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Assign index to each unit for ordering and resume
+        for idx, unit in enumerate(units):
+            unit["_idx"] = idx
+
+        # Preview mode
+        if preview > 0:
+            click.echo(f"\nRunning preview on {preview} random units...")
+            preview_units = random.sample(units, min(preview, total_units))
+
+            # Create engine for preview (force sequential)
+            preview_engine = ProcessingEngine(
+                llm_client,
+                prompt_template,
+                mode=ProcessingMode.SEQUENTIAL,
+                post_process=not no_post_process,
+                merge_results=not no_merge,
+                include_raw_result=include_raw,
+            )
+
+            preview_results = list(preview_engine.process(preview_units))
+
+            click.echo("\nPreview Results:")
+            for i, result in enumerate(preview_results, 1):
+                click.echo(f"\n--- Unit {i} ---")
+                click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+            if not click.confirm(f"\nProceed with processing all {total_units} units?"):
+                click.echo("Aborted.")
+                return
+
+        # Initialize progress tracker and incremental writer
+        job_id = f"job_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
         checkpoint_dir = Path.cwd() / ".checkpoints"
         job_metadata = {
             "input_file": str(input_file),
@@ -132,6 +208,9 @@ def process(
             "model": final_model,
             "mode": final_mode,
             "batch_size": final_batch_size,
+            "no_post_process": no_post_process,
+            "no_merge": no_merge,
+            "include_raw": include_raw,
         }
         tracker = ProgressTracker(
             total=total_units,
@@ -140,9 +219,10 @@ def process(
             checkpoint_interval=100,
             metadata=job_metadata,
         )
+        writer = IncrementalWriter(job_id, checkpoint_dir)
 
-        # Process with progress bar
-        results = []
+        # Process with progress bar and incremental writes
+        failed_count = 0
         with Progress(
             TextColumn("[bold blue]Processing:"),
             BarColumn(),
@@ -153,20 +233,27 @@ def process(
             task = progress.add_task("Processing", total=total_units)
 
             for result in engine.process(units):
-                results.append(result)
+                writer.write_result(result)  # Write immediately to survive crashes
                 if "error" in result:
+                    failed_count += 1
                     tracker.increment_failed()
                 tracker.update(1)
                 progress.update(task, advance=1)
 
         # Final checkpoint
         tracker.save_checkpoint()
-        adapter.write_results(results)
 
-        click.echo(f"\nSuccessfully processed {len(results)} units")
+        # Read all results sorted by _idx and write final output
+        all_results = writer.read_all_results()
+        # Strip _idx from final output
+        for r in all_results:
+            r.pop("_idx", None)
+        adapter.write_results(all_results)
+
+        click.echo(f"\nSuccessfully processed {len(all_results)} units")
         click.echo(f"Job ID: {job_id}")
-        if tracker.failed > 0:
-            click.echo(f"Failed: {tracker.failed} units", err=True)
+        if failed_count > 0:
+            click.echo(f"Failed: {failed_count} units", err=True)
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -193,6 +280,9 @@ def resume(job_id: str, api_key: str | None) -> None:
         model = metadata["model"]
         mode = metadata["mode"]
         batch_size = metadata["batch_size"]
+        no_post_process = metadata.get("no_post_process", False)
+        no_merge = metadata.get("no_merge", False)
+        include_raw = metadata.get("include_raw", False)
 
         # Use API key from checkpoint or CLI
         final_api_key = api_key or metadata.get("api_key")
@@ -200,25 +290,49 @@ def resume(job_id: str, api_key: str | None) -> None:
             click.echo("Error: API key required (set OPENAI_API_KEY or use --api-key)", err=True)
             sys.exit(1)
 
+        # Initialize incremental writer and get completed indices
+        writer = IncrementalWriter(job_id, checkpoint_dir)
+        completed_indices = writer.get_completed_indices()
+
         # Initialize components
         adapter = get_adapter(input_file, output_file)
         llm_client = LLMClient(api_key=final_api_key, model=model)
         prompt_template = PromptTemplate(prompt)
 
-        processing_mode = ProcessingMode.SEQUENTIAL if mode == "sequential" else ProcessingMode.ASYNC
-        engine = ProcessingEngine(llm_client, prompt_template, mode=processing_mode, batch_size=batch_size)
+        processing_mode = (
+            ProcessingMode.SEQUENTIAL if mode == "sequential" else ProcessingMode.ASYNC
+        )
+        engine = ProcessingEngine(
+            llm_client,
+            prompt_template,
+            mode=processing_mode,
+            batch_size=batch_size,
+            post_process=not no_post_process,
+            merge_results=not no_merge,
+            include_raw_result=include_raw,
+        )
 
-        # Load all units and skip already processed ones
-        click.echo(f"Resuming from unit {tracker.processed}/{tracker.total}")
+        # Load all units, assign indices, and filter to unprocessed
         all_units = list(adapter.read_units())
-        remaining_units = all_units[tracker.processed :]
+        for idx, unit in enumerate(all_units):
+            unit["_idx"] = idx
+
+        remaining_units = [u for u in all_units if u["_idx"] not in completed_indices]
+
+        click.echo(f"Found {len(completed_indices)} completed, {len(remaining_units)} remaining")
 
         if not remaining_units:
             click.echo("All units already processed!")
+            # Still write final output in case it wasn't written before
+            all_results = writer.read_all_results()
+            for r in all_results:
+                r.pop("_idx", None)
+            adapter.write_results(all_results)
+            click.echo(f"Final output written to {output_file}")
             return
 
         # Process remaining units with progress bar
-        results = []
+        failed_count = 0
         with Progress(
             TextColumn("[bold blue]Resuming:"),
             BarColumn(),
@@ -229,8 +343,9 @@ def resume(job_id: str, api_key: str | None) -> None:
             task = progress.add_task("Processing", total=len(remaining_units))
 
             for result in engine.process(remaining_units):
-                results.append(result)
+                writer.write_result(result)  # Write immediately
                 if "error" in result:
+                    failed_count += 1
                     tracker.increment_failed()
                 tracker.update(1)
                 progress.update(task, advance=1)
@@ -238,26 +353,16 @@ def resume(job_id: str, api_key: str | None) -> None:
         # Final checkpoint
         tracker.save_checkpoint()
 
-        # Append results to output file
-        if results:
-            # Read existing results
-            existing_results = []
-            try:
-                output_path = Path(output_file)
-                if output_path.exists():
-                    temp_adapter = get_adapter(output_file, output_file)
-                    existing_results = list(temp_adapter.read_units())
-            except Exception:
-                pass
+        # Read all results sorted by _idx and write final output
+        all_results = writer.read_all_results()
+        for r in all_results:
+            r.pop("_idx", None)
+        adapter.write_results(all_results)
 
-            # Combine and write all results
-            all_results = existing_results + results
-            adapter.write_results(all_results)
-
-        click.echo(f"\nSuccessfully processed {len(results)} additional units")
-        click.echo(f"Total processed: {tracker.processed}/{tracker.total}")
-        if tracker.failed > 0:
-            click.echo(f"Failed: {tracker.failed} units", err=True)
+        click.echo(f"\nSuccessfully processed {len(remaining_units)} additional units")
+        click.echo(f"Total processed: {len(all_results)}/{len(all_units)}")
+        if failed_count > 0:
+            click.echo(f"Failed: {failed_count} units", err=True)
 
     except FileNotFoundError:
         click.echo(f"Error: Checkpoint not found for job_id: {job_id}", err=True)

@@ -3,6 +3,7 @@
 import csv
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 from agents.adapters.base import DataAdapter
 
@@ -22,15 +23,15 @@ class CSVAdapter(DataAdapter):
         self.output_path = Path(output_path)
         self._columns: list[str] = []
 
-    def read_units(self) -> Iterator[dict[str, str]]:
+    def read_units(self) -> Iterator[dict[str, Any]]:
         """Read CSV rows as data units."""
         with open(self.input_path, newline="") as f:
             reader = csv.DictReader(f)
-            self._columns = reader.fieldnames or []
+            self._columns = list(reader.fieldnames or [])
             for row in reader:
                 yield dict(row)
 
-    def write_results(self, results: list[dict[str, str]]) -> None:
+    def write_results(self, results: list[dict[str, Any]]) -> None:
         """Write results to CSV file."""
         if not results:
             return
@@ -43,12 +44,12 @@ class CSVAdapter(DataAdapter):
             writer.writeheader()
             writer.writerows(results)
 
-    def get_schema(self) -> dict[str, str]:
+    def get_schema(self) -> dict[str, Any]:
         """Get CSV schema information."""
         # Read columns if not already loaded
         if not self._columns:
             with open(self.input_path, newline="") as f:
                 reader = csv.DictReader(f)
-                self._columns = reader.fieldnames or []
+                self._columns = list(reader.fieldnames or [])
 
         return {"type": "csv", "columns": self._columns}

@@ -22,7 +22,7 @@ class JSONLAdapter(DataAdapter):
         self.input_path = Path(input_path)
         self.output_path = Path(output_path)
 
-    def read_units(self) -> Iterator[dict[str, str]]:
+    def read_units(self) -> Iterator[dict[str, Any]]:
         """Read JSONL lines as data units."""
         with open(self.input_path) as f:
             for line in f:
@@ -30,11 +30,14 @@ class JSONLAdapter(DataAdapter):
                 if line:
                     yield json.loads(line)
 
-    def write_results(self, results: list[dict[str, str]]) -> None:
-        """Write results to JSONL file."""
-        with open(self.output_path, "w") as f:
+    def write_results(self, results: list[dict[str, Any]]) -> None:
+        """Write results to JSONL file.
+
+        Encoding must be utf-8 to handle non-ASCII characters
+        """
+        with open(self.output_path, "w", encoding="utf-8") as f:
             for result in results:
-                f.write(json.dumps(result) + "\n")
+                f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
     def get_schema(self) -> dict[str, Any]:
         """Get JSONL schema information."""

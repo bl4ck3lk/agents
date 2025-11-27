@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 
 from agents.core.llm_client import LLMClient
+from agents.core.postprocessor import PostProcessor
 from agents.core.prompt import PromptTemplate
 
 
@@ -25,6 +26,9 @@ class ProcessingEngine:
         prompt_template: PromptTemplate,
         mode: ProcessingMode = ProcessingMode.SEQUENTIAL,
         batch_size: int = 10,
+        post_process: bool = True,
+        merge_results: bool = True,
+        include_raw_result: bool = False,
     ) -> None:
         """
         Initialize processing engine.
@@ -34,11 +38,18 @@ class ProcessingEngine:
             prompt_template: Template for rendering prompts.
             mode: Processing mode (sequential or async).
             batch_size: Batch size for async mode.
+            post_process: Whether to post-process LLM output to extract JSON.
+            merge_results: Whether to merge parsed JSON fields into root.
+            include_raw_result: Whether to include raw LLM output in result.
         """
         self.llm_client = llm_client
         self.prompt_template = prompt_template
         self.mode = mode
         self.batch_size = batch_size
+        self.post_process = post_process
+        self.merge_results = merge_results
+        self.include_raw_result = include_raw_result
+        self.post_processor = PostProcessor() if post_process else None
 
     def process(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """
@@ -61,7 +72,17 @@ class ProcessingEngine:
             try:
                 prompt = self.prompt_template.render(unit)
                 result = self.llm_client.complete(prompt)
-                yield {**unit, "result": result}
+                processed_result = {**unit, "result": result}
+
+                # Apply post-processing if enabled
+                if self.post_processor:
+                    processed_result = self.post_processor.process_result(
+                        processed_result,
+                        merge=self.merge_results,
+                        include_raw=self.include_raw_result,
+                    )
+
+                yield processed_result
             except Exception as e:
                 yield {**unit, "error": str(e)}
 
@@ -96,7 +117,17 @@ class ProcessingEngine:
                 try:
                     prompt = self.prompt_template.render(unit)
                     result = await self.llm_client.complete_async(prompt)
-                    return {**unit, "result": result}
+                    processed_result = {**unit, "result": result}
+
+                    # Apply post-processing if enabled
+                    if self.post_processor:
+                        processed_result = self.post_processor.process_result(
+                            processed_result,
+                            merge=self.merge_results,
+                            include_raw=self.include_raw_result,
+                        )
+
+                    return processed_result
                 except Exception as e:
                     return {**unit, "error": str(e)}
 
