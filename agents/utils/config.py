@@ -32,6 +32,7 @@ class ProcessingConfig(BaseModel):
     max_retries: int = 3
     retry_delay: float = 1.0
     checkin_interval: int | None = None  # Pause every N entries to ask user to continue
+    circuit_breaker_threshold: int = 5
 
 
 class OutputConfig(BaseModel):

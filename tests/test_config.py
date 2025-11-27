@@ -47,3 +47,11 @@ def test_config_defaults() -> None:
     assert config.llm.temperature == 0.7  # default
     assert config.processing.mode == "async"  # default
     assert config.processing.batch_size == 10  # default
+
+
+def test_processing_config_circuit_breaker_threshold() -> None:
+    """Test circuit_breaker_threshold has default value."""
+    from agents.utils.config import ProcessingConfig
+
+    config = ProcessingConfig()
+    assert config.circuit_breaker_threshold == 5
