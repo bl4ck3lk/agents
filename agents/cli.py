@@ -342,7 +342,15 @@ def process(
     default=None,
     help="Override check-in interval from original job (pause every N entries)",
 )
-def resume(job_id: str, api_key: str | None, checkin_interval: int | None) -> None:
+@click.option(
+    "--retry-failures",
+    is_flag=True,
+    default=False,
+    help="Re-process items that failed with errors (instead of skipping them)",
+)
+def resume(
+    job_id: str, api_key: str | None, checkin_interval: int | None, retry_failures: bool
+) -> None:
     """Resume processing from a checkpoint using JOB_ID."""
     checkpoint_dir = Path.cwd() / ".checkpoints"
 
@@ -399,7 +407,18 @@ def resume(job_id: str, api_key: str | None, checkin_interval: int | None) -> No
         for idx, unit in enumerate(all_units):
             unit["_idx"] = idx
 
-        remaining_units = [u for u in all_units if u["_idx"] not in completed_indices]
+        # Determine which units to process
+        if retry_failures:
+            failed_indices = writer.get_failed_indices()
+            # Process: not completed OR (completed but failed)
+            remaining_units = [
+                u
+                for u in all_units
+                if u["_idx"] not in completed_indices or u["_idx"] in failed_indices
+            ]
+            click.echo(f"Found {len(failed_indices)} failed items to retry")
+        else:
+            remaining_units = [u for u in all_units if u["_idx"] not in completed_indices]
 
         click.echo(f"Found {len(completed_indices)} completed, {len(remaining_units)} remaining")
 
