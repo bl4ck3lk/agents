@@ -1,6 +1,6 @@
 """Tests for LLM client."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from openai import AuthenticationError, OpenAI, PermissionDeniedError, RateLimitError
@@ -121,3 +121,25 @@ def test_llm_client_uses_max_retries_param(mock_openai_client: Mock) -> None:
             client.complete("Test")
 
     assert mock_openai_client.chat.completions.create.call_count == 5
+
+
+@pytest.mark.asyncio
+async def test_llm_client_async_raises_fatal_error_without_retry(mock_openai_client: Mock) -> None:
+    """Test async client raises fatal errors immediately without retry."""
+    mock_async_client = Mock()
+    mock_response = Mock()
+    mock_response.status_code = 401
+
+    async def raise_auth_error(*args, **kwargs):
+        raise AuthenticationError("Invalid API key", response=mock_response, body=None)
+
+    mock_async_client.chat.completions.create = AsyncMock(side_effect=raise_auth_error)
+
+    with patch("agents.core.llm_client.OpenAI", return_value=mock_openai_client):
+        with patch("agents.core.llm_client.AsyncOpenAI", return_value=mock_async_client):
+            client = LLMClient(api_key="bad-key", model="gpt-4o-mini")
+            with pytest.raises(FatalLLMError) as exc_info:
+                await client.complete_async("Test")
+
+    assert mock_async_client.chat.completions.create.call_count == 1
+    assert "AuthenticationError" in str(exc_info.value)

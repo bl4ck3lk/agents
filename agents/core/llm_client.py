@@ -16,6 +16,7 @@ from tenacity import (
     AsyncRetrying,
     retry,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
 )
@@ -60,51 +61,65 @@ class LLMClient:
         """Make API request with retry logic for transient errors."""
 
         @retry(
-            retry=retry_if_exception_type(RETRYABLE_ERRORS),
+            retry=(
+                retry_if_exception_type(RETRYABLE_ERRORS)
+                & retry_if_not_exception_type(FATAL_ERRORS)
+            ),
             stop=stop_after_attempt(self.max_retries),
             wait=wait_exponential_jitter(initial=1, max=60, jitter=5),
             reraise=True,
         )
         def _request() -> str:
-            try:
-                response = self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+            )
+            return response.choices[0].message.content or ""
+
+        return _request()
+
+    def complete(self, prompt: str, **kwargs: Any) -> str:
+        """Generate completion for prompt.
+
+        Raises:
+            FatalLLMError: For authentication/permission errors (no retry).
+        """
+        try:
+            return self._make_request(prompt, **kwargs)
+        except FATAL_ERRORS as e:
+            raise FatalLLMError(e) from e
+
+    async def _make_request_async(self, prompt: str, **kwargs: Any) -> str:
+        """Make async API request with retry logic."""
+        async for attempt in AsyncRetrying(
+            retry=(
+                retry_if_exception_type(RETRYABLE_ERRORS)
+                & retry_if_not_exception_type(FATAL_ERRORS)
+            ),
+            stop=stop_after_attempt(self.max_retries),
+            wait=wait_exponential_jitter(initial=1, max=60, jitter=5),
+            reraise=True,
+        ):
+            with attempt:
+                response = await self.async_client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=kwargs.get("temperature", self.temperature),
                     max_tokens=kwargs.get("max_tokens", self.max_tokens),
                 )
                 return response.choices[0].message.content or ""
-            except FATAL_ERRORS as e:
-                raise FatalLLMError(e) from e
-
-        return _request()
-
-    def complete(self, prompt: str, **kwargs: Any) -> str:
-        """Generate completion for prompt."""
-        return self._make_request(prompt, **kwargs)
-
-    async def _make_request_async(self, prompt: str, **kwargs: Any) -> str:
-        """Make async API request with retry logic."""
-        async for attempt in AsyncRetrying(
-            retry=retry_if_exception_type(RETRYABLE_ERRORS),
-            stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential_jitter(initial=1, max=60, jitter=5),
-            reraise=True,
-        ):
-            with attempt:
-                try:
-                    response = await self.async_client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=kwargs.get("temperature", self.temperature),
-                        max_tokens=kwargs.get("max_tokens", self.max_tokens),
-                    )
-                    return response.choices[0].message.content or ""
-                except FATAL_ERRORS as e:
-                    raise FatalLLMError(e) from e
 
         raise RuntimeError("Async retry loop exited unexpectedly")
 
     async def complete_async(self, prompt: str, **kwargs: Any) -> str:
-        """Generate completion for prompt asynchronously."""
-        return await self._make_request_async(prompt, **kwargs)
+        """Generate completion for prompt asynchronously.
+
+        Raises:
+            FatalLLMError: For authentication/permission errors (no retry).
+        """
+        try:
+            return await self._make_request_async(prompt, **kwargs)
+        except FATAL_ERRORS as e:
+            raise FatalLLMError(e) from e
