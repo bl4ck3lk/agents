@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from agents.core.circuit_breaker import CircuitBreakerTripped
 from agents.core.engine import ProcessingEngine, ProcessingMode
-from agents.core.llm_client import LLMClient
+from agents.core.llm_client import FatalLLMError, LLMClient
 from agents.core.prompt import PromptTemplate
 
 
@@ -34,7 +35,9 @@ def mock_async_llm_client() -> Mock:
 def test_sequential_processing(mock_llm_client: Mock) -> None:
     """Test sequential processing mode."""
     template = PromptTemplate("Process: {text}")
-    engine = ProcessingEngine(mock_llm_client, template, mode=ProcessingMode.SEQUENTIAL)
+    engine = ProcessingEngine(
+        mock_llm_client, template, mode=ProcessingMode.SEQUENTIAL, post_process=False
+    )
 
     units = [{"text": "hello"}, {"text": "world"}]
     results = list(engine.process(units))
@@ -54,7 +57,9 @@ def test_processing_with_error_handling(mock_llm_client: Mock) -> None:
     ]
 
     template = PromptTemplate("Process: {text}")
-    engine = ProcessingEngine(mock_llm_client, template, mode=ProcessingMode.SEQUENTIAL)
+    engine = ProcessingEngine(
+        mock_llm_client, template, mode=ProcessingMode.SEQUENTIAL, post_process=False
+    )
 
     units = [{"text": "one"}, {"text": "two"}, {"text": "three"}]
     results = list(engine.process(units))
@@ -69,7 +74,7 @@ def test_async_processing(mock_async_llm_client: Mock) -> None:
     """Test async processing mode."""
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
-        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=2
+        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=2, post_process=False
     )
 
     units = [{"text": "hello"}, {"text": "world"}, {"text": "async"}]
@@ -95,23 +100,25 @@ def test_async_processing_with_error_handling(mock_async_llm_client: Mock) -> No
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
-        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=2
+        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=2, post_process=False
     )
 
     units = [{"text": "one"}, {"text": "two"}, {"text": "three"}]
     results = list(engine.process(units))
 
     assert len(results) == 3
-    assert results[0] == {"text": "one", "result": "Result: Process: one"}
-    assert "error" in results[1]
-    assert results[2] == {"text": "three", "result": "Result: Process: three"}
+    # Async results may come back in any order, so check by text field
+    results_by_text = {r["text"]: r for r in results}
+    assert results_by_text["one"] == {"text": "one", "result": "Result: Process: one"}
+    assert "error" in results_by_text["two"]
+    assert results_by_text["three"] == {"text": "three", "result": "Result: Process: three"}
 
 
 def test_async_processing_respects_batch_size(mock_async_llm_client: Mock) -> None:
     """Test async processing respects batch size for concurrency control."""
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
-        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=3
+        mock_async_llm_client, template, mode=ProcessingMode.ASYNC, batch_size=3, post_process=False
     )
 
     # Create 10 units
@@ -123,3 +130,78 @@ def test_async_processing_respects_batch_size(mock_async_llm_client: Mock) -> No
     for i, result in enumerate(results):
         assert result["text"] == f"item_{i}"
         assert "result" in result
+
+
+def test_engine_tracks_fatal_errors_in_circuit_breaker(mock_llm_client: Mock) -> None:
+    """Test engine counts fatal errors toward circuit breaker."""
+    mock_llm_client.complete.side_effect = FatalLLMError(Exception("Permission denied"))
+
+    template = PromptTemplate("Process: {text}")
+    engine = ProcessingEngine(
+        mock_llm_client,
+        template,
+        mode=ProcessingMode.SEQUENTIAL,
+        circuit_breaker_threshold=3,
+        post_process=False,
+    )
+
+    units = [{"text": f"item{i}"} for i in range(5)]
+    results = []
+
+    with pytest.raises(CircuitBreakerTripped) as exc_info:
+        for result in engine.process(units):
+            results.append(result)
+
+    # Should have processed 3 items before tripping
+    assert len(results) == 3
+    assert exc_info.value.status["consecutive_failures"] == 3
+
+
+def test_engine_resets_circuit_breaker_on_success(mock_llm_client: Mock) -> None:
+    """Test circuit breaker resets after successful processing."""
+    mock_llm_client.complete.side_effect = [
+        FatalLLMError(Exception("err1")),
+        FatalLLMError(Exception("err2")),
+        "Success",
+        "Success",
+    ]
+
+    template = PromptTemplate("Process: {text}")
+    engine = ProcessingEngine(
+        mock_llm_client,
+        template,
+        mode=ProcessingMode.SEQUENTIAL,
+        circuit_breaker_threshold=3,
+        post_process=False,
+    )
+
+    units = [{"text": f"item{i}"} for i in range(4)]
+    results = list(engine.process(units))
+
+    # All 4 should process (breaker never trips because success resets counter)
+    assert len(results) == 4
+    assert "error" in results[0]
+    assert "error" in results[1]
+    assert results[2]["result"] == "Success"
+    assert results[3]["result"] == "Success"
+
+
+def test_engine_circuit_breaker_disabled_when_zero(mock_llm_client: Mock) -> None:
+    """Test circuit breaker is disabled when threshold is 0."""
+    mock_llm_client.complete.side_effect = FatalLLMError(Exception("err"))
+
+    template = PromptTemplate("Process: {text}")
+    engine = ProcessingEngine(
+        mock_llm_client,
+        template,
+        mode=ProcessingMode.SEQUENTIAL,
+        circuit_breaker_threshold=0,  # Disabled
+        post_process=False,
+    )
+
+    units = [{"text": f"item{i}"} for i in range(10)]
+    results = list(engine.process(units))
+
+    # All 10 should process (no circuit breaker)
+    assert len(results) == 10
+    assert all("error" in r for r in results)

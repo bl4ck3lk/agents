@@ -5,7 +5,8 @@ from collections.abc import AsyncIterator, Iterator
 from enum import Enum
 from typing import Any
 
-from agents.core.llm_client import LLMClient
+from agents.core.circuit_breaker import CircuitBreaker, CircuitBreakerTripped
+from agents.core.llm_client import FatalLLMError, LLMClient
 from agents.core.postprocessor import PostProcessor
 from agents.core.prompt import PromptTemplate
 
@@ -33,6 +34,7 @@ class ProcessingEngine:
         merge_results: bool = True,
         include_raw_result: bool = False,
         parse_error_retries: int = 2,
+        circuit_breaker_threshold: int = 5,
     ) -> None:
         """
         Initialize processing engine.
@@ -46,6 +48,7 @@ class ProcessingEngine:
             merge_results: Whether to merge parsed JSON fields into root.
             include_raw_result: Whether to include raw LLM output in result.
             parse_error_retries: Number of retries when JSON parsing fails.
+            circuit_breaker_threshold: Number of consecutive fatal errors before tripping. 0 to disable.
         """
         self.llm_client = llm_client
         self.prompt_template = prompt_template
@@ -55,7 +58,33 @@ class ProcessingEngine:
         self.merge_results = merge_results
         self.include_raw_result = include_raw_result
         self.parse_error_retries = parse_error_retries
+        self.circuit_breaker_threshold = circuit_breaker_threshold
         self.post_processor = PostProcessor() if post_process else None
+
+        # Initialize circuit breaker (disabled if threshold is 0)
+        self._circuit_breaker: CircuitBreaker | None = None
+        if circuit_breaker_threshold > 0:
+            self._circuit_breaker = CircuitBreaker(threshold=circuit_breaker_threshold)
+
+    def _check_circuit_breaker(self) -> None:
+        """Check if circuit breaker has tripped and raise if so."""
+        if self._circuit_breaker and self._circuit_breaker.is_tripped():
+            raise CircuitBreakerTripped(self._circuit_breaker.get_status())
+
+    def _record_fatal_error(self, error: Exception, unit: dict[str, Any]) -> None:
+        """Record a fatal error in the circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure(error, unit)
+
+    def _record_success(self) -> None:
+        """Record a success, resetting the circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.record_success()
+
+    def reset_circuit_breaker(self) -> None:
+        """Manually reset the circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.reset()
 
     def process(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """
@@ -108,6 +137,8 @@ class ProcessingEngine:
                 if attempt < attempts - 1:
                     continue  # Retry
 
+            except FatalLLMError:
+                raise  # Re-raise for circuit breaker handling
             except Exception as e:
                 return {**unit, "error": str(e)}
 
@@ -122,7 +153,15 @@ class ProcessingEngine:
     def _process_sequential(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """Process units sequentially."""
         for unit in units:
-            yield self._process_single_unit(unit)
+            try:
+                result = self._process_single_unit(unit)
+                if "error" not in result:
+                    self._record_success()
+                yield result
+            except FatalLLMError as e:
+                self._record_fatal_error(e.original_error, unit)
+                yield {**unit, "error": str(e)}
+                self._check_circuit_breaker()
 
     def _process_async(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """Process units asynchronously using batch processing with incremental results."""
@@ -178,6 +217,8 @@ class ProcessingEngine:
                 if attempt < attempts - 1:
                     continue  # Retry
 
+            except FatalLLMError:
+                raise  # Re-raise for circuit breaker handling
             except Exception as e:
                 return {**unit, "error": str(e)}
 
@@ -207,7 +248,14 @@ class ProcessingEngine:
         async def process_unit(unit: dict[str, Any]) -> dict[str, Any]:
             """Process a single unit with semaphore control."""
             async with semaphore:
-                return await self._process_single_unit_async(unit)
+                try:
+                    result = await self._process_single_unit_async(unit)
+                    if "error" not in result:
+                        self._record_success()
+                    return result
+                except FatalLLMError as e:
+                    self._record_fatal_error(e.original_error, unit)
+                    return {**unit, "error": str(e)}
 
         # Create all tasks
         tasks = [asyncio.create_task(process_unit(unit)) for unit in units]
@@ -215,4 +263,6 @@ class ProcessingEngine:
         # Yield results as they complete
         for coro in asyncio.as_completed(tasks):
             result = await coro
+            # Check circuit breaker after each result
+            self._check_circuit_breaker()
             yield result
