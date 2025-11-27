@@ -21,7 +21,7 @@ class LLMClient:
         model: str = "gpt-4o-mini",
         base_url: str | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 500,
+        max_tokens: int = 1500,
         max_retries: int = 3,
     ) -> None:
         """

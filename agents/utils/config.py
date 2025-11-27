@@ -21,7 +21,7 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     temperature: float = 0.7
-    max_tokens: int = 500
+    max_tokens: int = 1500
 
 
 class ProcessingConfig(BaseModel):
@@ -31,6 +31,7 @@ class ProcessingConfig(BaseModel):
     batch_size: int = 10
     max_retries: int = 3
     retry_delay: float = 1.0
+    checkin_interval: int | None = None  # Pause every N entries to ask user to continue
 
 
 class OutputConfig(BaseModel):

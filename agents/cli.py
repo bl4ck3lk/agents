@@ -77,6 +77,7 @@ def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     help="Processing mode",
 )
 @click.option("--batch-size", type=int, help="Batch size for async mode")
+@click.option("--max-tokens", type=int, help="Maximum tokens in LLM response (default: 1500)")
 @click.option(
     "--no-post-process",
     is_flag=True,
@@ -101,6 +102,12 @@ def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     default=0,
     help="Preview K random units before processing all",
 )
+@click.option(
+    "--checkin-interval",
+    type=int,
+    default=None,
+    help="Pause every N entries to ask user if they want to continue (default: disabled, use 100 for recommended interval)",
+)
 def process(
     input_file: str,
     output_file: str,
@@ -111,10 +118,12 @@ def process(
     base_url: str | None,
     mode: str | None,
     batch_size: int | None,
+    max_tokens: int | None,
     no_post_process: bool,
     no_merge: bool,
     include_raw: bool,
     preview: int,
+    checkin_interval: int | None,
 ) -> None:
     """Process INPUT_FILE and save results to OUTPUT_FILE."""
     # Load config if provided
@@ -127,6 +136,8 @@ def process(
         final_base_url = base_url or job_config.llm.base_url
         final_mode = mode or job_config.processing.mode
         final_batch_size = batch_size or job_config.processing.batch_size
+        final_max_tokens = max_tokens or job_config.llm.max_tokens
+        final_checkin_interval = checkin_interval or job_config.processing.checkin_interval
     else:
         # Use CLI args or defaults
         if not prompt:
@@ -138,6 +149,8 @@ def process(
         final_base_url = base_url
         final_mode = mode or "sequential"
         final_batch_size = batch_size or 10
+        final_max_tokens = max_tokens or 1500
+        final_checkin_interval = checkin_interval
 
     if not final_api_key:
         click.echo("Error: API key required (set OPENAI_API_KEY or use --api-key)", err=True)
@@ -146,7 +159,12 @@ def process(
     try:
         # Initialize components
         adapter = get_adapter(input_file, output_file)
-        llm_client = LLMClient(api_key=final_api_key, model=final_model, base_url=final_base_url)
+        llm_client = LLMClient(
+            api_key=final_api_key,
+            model=final_model,
+            base_url=final_base_url,
+            max_tokens=final_max_tokens,
+        )
         prompt_template = PromptTemplate(final_prompt)
 
         processing_mode = (
@@ -208,9 +226,11 @@ def process(
             "model": final_model,
             "mode": final_mode,
             "batch_size": final_batch_size,
+            "max_tokens": final_max_tokens,
             "no_post_process": no_post_process,
             "no_merge": no_merge,
             "include_raw": include_raw,
+            "checkin_interval": final_checkin_interval,
         }
         tracker = ProgressTracker(
             total=total_units,
@@ -222,7 +242,10 @@ def process(
         writer = IncrementalWriter(job_id, checkpoint_dir)
 
         # Process with progress bar and incremental writes
-        failed_count = 0
+        error_count = 0
+        parse_error_count = 0
+        processed_count = 0
+        paused_by_user = False
         with Progress(
             TextColumn("[bold blue]Processing:"),
             BarColumn(),
@@ -235,25 +258,75 @@ def process(
             for result in engine.process(units):
                 writer.write_result(result)  # Write immediately to survive crashes
                 if "error" in result:
-                    failed_count += 1
+                    error_count += 1
+                    tracker.increment_failed()
+                elif "parse_error" in result:
+                    parse_error_count += 1
                     tracker.increment_failed()
                 tracker.update(1)
                 progress.update(task, advance=1)
+                processed_count += 1
+
+                # Check-in: pause every N entries to ask user if they want to continue
+                if (
+                    final_checkin_interval
+                    and processed_count % final_checkin_interval == 0
+                    and processed_count < total_units
+                ):
+                    # Save checkpoint before prompting
+                    tracker.save_checkpoint()
+                    progress.stop()
+                    click.echo(f"\n[Check-in] Processed {processed_count}/{total_units} entries.")
+                    choice = click.prompt(
+                        "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
+                        type=click.Choice(
+                            ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
+                        ),
+                        default="y",
+                    )
+                    if choice.lower() in ("n", "no"):
+                        paused_by_user = True
+                        click.echo(f"\nPaused at {processed_count}/{total_units} entries.")
+                        click.echo(f"To resume later, run: agents resume {job_id}")
+                        break
+                    elif choice.lower() in ("a", "all"):
+                        # Disable further check-ins
+                        final_checkin_interval = None
+                        click.echo("Continuing without further check-ins...")
+                    progress.start()
 
         # Final checkpoint
         tracker.save_checkpoint()
 
+        # If user paused, don't write final output - just exit so they can resume later
+        if paused_by_user:
+            return
+
         # Read all results sorted by _idx and write final output
         all_results = writer.read_all_results()
-        # Strip _idx from final output
+        # Strip internal fields from final output
         for r in all_results:
             r.pop("_idx", None)
+            r.pop("_retries_exhausted", None)
+            r.pop("_attempts", None)
         adapter.write_results(all_results)
+
+        # Write failures to separate file if any
+        failures_path = writer.write_failures_file()
 
         click.echo(f"\nSuccessfully processed {len(all_results)} units")
         click.echo(f"Job ID: {job_id}")
-        if failed_count > 0:
-            click.echo(f"Failed: {failed_count} units", err=True)
+
+        # Surface failures to user
+        total_failures = error_count + parse_error_count
+        if total_failures > 0:
+            click.echo(f"\nFailures: {total_failures} units", err=True)
+            if error_count > 0:
+                click.echo(f"  - Errors: {error_count}", err=True)
+            if parse_error_count > 0:
+                click.echo(f"  - Parse errors (after retries): {parse_error_count}", err=True)
+            if failures_path:
+                click.echo(f"  - Failed items saved to: {failures_path}", err=True)
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -263,7 +336,13 @@ def process(
 @cli.command()
 @click.argument("job_id")
 @click.option("--api-key", envvar="OPENAI_API_KEY", help="OpenAI API key")
-def resume(job_id: str, api_key: str | None) -> None:
+@click.option(
+    "--checkin-interval",
+    type=int,
+    default=None,
+    help="Override check-in interval from original job (pause every N entries)",
+)
+def resume(job_id: str, api_key: str | None, checkin_interval: int | None) -> None:
     """Resume processing from a checkpoint using JOB_ID."""
     checkpoint_dir = Path.cwd() / ".checkpoints"
 
@@ -280,9 +359,12 @@ def resume(job_id: str, api_key: str | None) -> None:
         model = metadata["model"]
         mode = metadata["mode"]
         batch_size = metadata["batch_size"]
+        max_tokens = metadata.get("max_tokens", 1500)
         no_post_process = metadata.get("no_post_process", False)
         no_merge = metadata.get("no_merge", False)
         include_raw = metadata.get("include_raw", False)
+        # CLI arg overrides saved checkin_interval
+        final_checkin_interval = checkin_interval or metadata.get("checkin_interval")
 
         # Use API key from checkpoint or CLI
         final_api_key = api_key or metadata.get("api_key")
@@ -296,7 +378,7 @@ def resume(job_id: str, api_key: str | None) -> None:
 
         # Initialize components
         adapter = get_adapter(input_file, output_file)
-        llm_client = LLMClient(api_key=final_api_key, model=model)
+        llm_client = LLMClient(api_key=final_api_key, model=model, max_tokens=max_tokens)
         prompt_template = PromptTemplate(prompt)
 
         processing_mode = (
@@ -332,7 +414,11 @@ def resume(job_id: str, api_key: str | None) -> None:
             return
 
         # Process remaining units with progress bar
-        failed_count = 0
+        error_count = 0
+        parse_error_count = 0
+        processed_count = 0
+        paused_by_user = False
+        total_remaining = len(remaining_units)
         with Progress(
             TextColumn("[bold blue]Resuming:"),
             BarColumn(),
@@ -340,29 +426,83 @@ def resume(job_id: str, api_key: str | None) -> None:
             TaskProgressColumn(),
             TimeRemainingColumn(),
         ) as progress:
-            task = progress.add_task("Processing", total=len(remaining_units))
+            task = progress.add_task("Processing", total=total_remaining)
 
             for result in engine.process(remaining_units):
                 writer.write_result(result)  # Write immediately
                 if "error" in result:
-                    failed_count += 1
+                    error_count += 1
+                    tracker.increment_failed()
+                elif "parse_error" in result:
+                    parse_error_count += 1
                     tracker.increment_failed()
                 tracker.update(1)
                 progress.update(task, advance=1)
+                processed_count += 1
+
+                # Check-in: pause every N entries to ask user if they want to continue
+                if (
+                    final_checkin_interval
+                    and processed_count % final_checkin_interval == 0
+                    and processed_count < total_remaining
+                ):
+                    # Save checkpoint before prompting
+                    tracker.save_checkpoint()
+                    progress.stop()
+                    total_done = len(completed_indices) + processed_count
+                    click.echo(
+                        f"\n[Check-in] Processed {total_done}/{len(all_units)} entries total ({processed_count} in this session)."
+                    )
+                    choice = click.prompt(
+                        "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
+                        type=click.Choice(
+                            ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
+                        ),
+                        default="y",
+                    )
+                    if choice.lower() in ("n", "no"):
+                        paused_by_user = True
+                        click.echo(f"\nPaused at {total_done}/{len(all_units)} entries.")
+                        click.echo(f"To resume later, run: agents resume {job_id}")
+                        break
+                    elif choice.lower() in ("a", "all"):
+                        # Disable further check-ins
+                        final_checkin_interval = None
+                        click.echo("Continuing without further check-ins...")
+                    progress.start()
 
         # Final checkpoint
         tracker.save_checkpoint()
 
+        # If user paused, don't write final output - just exit so they can resume later
+        if paused_by_user:
+            return
+
         # Read all results sorted by _idx and write final output
         all_results = writer.read_all_results()
+        # Strip internal fields from final output
         for r in all_results:
             r.pop("_idx", None)
+            r.pop("_retries_exhausted", None)
+            r.pop("_attempts", None)
         adapter.write_results(all_results)
 
-        click.echo(f"\nSuccessfully processed {len(remaining_units)} additional units")
+        # Write failures to separate file if any
+        failures_path = writer.write_failures_file()
+
+        click.echo(f"\nSuccessfully processed {processed_count} additional units")
         click.echo(f"Total processed: {len(all_results)}/{len(all_units)}")
-        if failed_count > 0:
-            click.echo(f"Failed: {failed_count} units", err=True)
+
+        # Surface failures to user
+        total_failures = error_count + parse_error_count
+        if total_failures > 0:
+            click.echo(f"\nFailures in this run: {total_failures} units", err=True)
+            if error_count > 0:
+                click.echo(f"  - Errors: {error_count}", err=True)
+            if parse_error_count > 0:
+                click.echo(f"  - Parse errors (after retries): {parse_error_count}", err=True)
+            if failures_path:
+                click.echo(f"  - Failed items saved to: {failures_path}", err=True)
 
     except FileNotFoundError:
         click.echo(f"Error: Checkpoint not found for job_id: {job_id}", err=True)

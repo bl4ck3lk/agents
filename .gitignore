@@ -52,3 +52,6 @@ htmlcov/
 .dmypy.json
 dmypy.json
 .checkpoints/
+data/
+
+
