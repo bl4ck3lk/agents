@@ -24,6 +24,7 @@ from agents.adapters.json_adapter import JSONAdapter
 from agents.adapters.jsonl_adapter import JSONLAdapter
 from agents.adapters.sqlite_adapter import SQLiteAdapter
 from agents.adapters.text_adapter import TextAdapter
+from agents.core.circuit_breaker import CircuitBreakerTripped
 from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
@@ -33,6 +34,55 @@ from agents.utils.progress import ProgressTracker
 
 # Load .env file for environment variables (API keys, etc.)
 load_dotenv()
+
+
+def handle_circuit_breaker(
+    exc: CircuitBreakerTripped,
+    tracker: ProgressTracker,
+    writer: IncrementalWriter,
+    processed_count: int,
+    total_count: int,
+    job_id: str,
+) -> str:
+    """
+    Handle circuit breaker trip by prompting user.
+
+    Returns:
+        User choice: 'c' (continue), 'a' (abort), or 'i' (inspect).
+    """
+    status = exc.status
+
+    click.echo("\n" + "=" * 60)
+    click.echo(
+        f"⚠️  Circuit breaker triggered: {status['consecutive_failures']} consecutive failures"
+    )
+    click.echo("=" * 60)
+    click.echo(f"\nLast error: {status['last_error_type']}")
+    click.echo(f"Message: {status['last_error_message']}")
+
+    if status["last_failed_unit"]:
+        unit_str = str(status["last_failed_unit"])
+        if len(unit_str) > 100:
+            unit_str = unit_str[:100] + "..."
+        click.echo(f"Failed unit: {unit_str}")
+
+    success_count = processed_count - status["consecutive_failures"]
+    success_rate = (success_count / processed_count * 100) if processed_count > 0 else 0
+    click.echo(
+        f"\nProcessed: {processed_count}/{total_count} | Failed: {status['consecutive_failures']} | Success rate: {success_rate:.1f}%"
+    )
+
+    tracker.save_checkpoint()
+
+    click.echo(f"\nTo resume later: agents resume {job_id}")
+    click.echo("\n[C]ontinue  [A]bort  [I]nspect details")
+    choice = click.prompt(
+        ">",
+        type=click.Choice(["c", "a", "i", "C", "A", "I"], case_sensitive=False),
+        default="a",
+    )
+
+    return choice.lower()
 
 
 @click.group()
@@ -108,6 +158,12 @@ def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     default=None,
     help="Pause every N entries to ask user if they want to continue (default: disabled, use 100 for recommended interval)",
 )
+@click.option(
+    "--circuit-breaker",
+    type=int,
+    default=None,
+    help="Trip after N consecutive fatal errors (default: 5, 0 to disable)",
+)
 def process(
     input_file: str,
     output_file: str,
@@ -124,6 +180,7 @@ def process(
     include_raw: bool,
     preview: int,
     checkin_interval: int | None,
+    circuit_breaker: int | None,
 ) -> None:
     """Process INPUT_FILE and save results to OUTPUT_FILE."""
     # Load config if provided
@@ -138,6 +195,12 @@ def process(
         final_batch_size = batch_size or job_config.processing.batch_size
         final_max_tokens = max_tokens or job_config.llm.max_tokens
         final_checkin_interval = checkin_interval or job_config.processing.checkin_interval
+        final_circuit_breaker_threshold = (
+            circuit_breaker
+            if circuit_breaker is not None
+            else job_config.processing.circuit_breaker_threshold
+        )
+        final_max_retries = job_config.processing.max_retries
     else:
         # Use CLI args or defaults
         if not prompt:
@@ -151,6 +214,8 @@ def process(
         final_batch_size = batch_size or 10
         final_max_tokens = max_tokens or 1500
         final_checkin_interval = checkin_interval
+        final_circuit_breaker_threshold = circuit_breaker if circuit_breaker is not None else 5
+        final_max_retries = 3
 
     if not final_api_key:
         click.echo("Error: API key required (set OPENAI_API_KEY or use --api-key)", err=True)
@@ -164,6 +229,7 @@ def process(
             model=final_model,
             base_url=final_base_url,
             max_tokens=final_max_tokens,
+            max_retries=final_max_retries,
         )
         prompt_template = PromptTemplate(final_prompt)
 
@@ -178,6 +244,7 @@ def process(
             post_process=not no_post_process,
             merge_results=not no_merge,
             include_raw_result=include_raw,
+            circuit_breaker_threshold=final_circuit_breaker_threshold,
         )
 
         # Process data
@@ -231,6 +298,8 @@ def process(
             "no_merge": no_merge,
             "include_raw": include_raw,
             "checkin_interval": final_checkin_interval,
+            "circuit_breaker_threshold": final_circuit_breaker_threshold,
+            "max_retries": final_max_retries,
         }
         tracker = ProgressTracker(
             total=total_units,
@@ -255,45 +324,94 @@ def process(
         ) as progress:
             task = progress.add_task("Processing", total=total_units)
 
-            for result in engine.process(units):
-                writer.write_result(result)  # Write immediately to survive crashes
-                if "error" in result:
-                    error_count += 1
-                    tracker.increment_failed()
-                elif "parse_error" in result:
-                    parse_error_count += 1
-                    tracker.increment_failed()
-                tracker.update(1)
-                progress.update(task, advance=1)
-                processed_count += 1
+            try:
+                for result in engine.process(units):
+                    writer.write_result(result)  # Write immediately to survive crashes
+                    if "error" in result:
+                        error_count += 1
+                        tracker.increment_failed()
+                    elif "parse_error" in result:
+                        parse_error_count += 1
+                        tracker.increment_failed()
+                    tracker.update(1)
+                    progress.update(task, advance=1)
+                    processed_count += 1
 
-                # Check-in: pause every N entries to ask user if they want to continue
-                if (
-                    final_checkin_interval
-                    and processed_count % final_checkin_interval == 0
-                    and processed_count < total_units
-                ):
-                    # Save checkpoint before prompting
-                    tracker.save_checkpoint()
-                    progress.stop()
-                    click.echo(f"\n[Check-in] Processed {processed_count}/{total_units} entries.")
-                    choice = click.prompt(
-                        "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
-                        type=click.Choice(
-                            ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
-                        ),
-                        default="y",
+                    # Check-in: pause every N entries to ask user if they want to continue
+                    if (
+                        final_checkin_interval
+                        and processed_count % final_checkin_interval == 0
+                        and processed_count < total_units
+                    ):
+                        # Save checkpoint before prompting
+                        tracker.save_checkpoint()
+                        progress.stop()
+                        click.echo(
+                            f"\n[Check-in] Processed {processed_count}/{total_units} entries."
+                        )
+                        choice = click.prompt(
+                            "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
+                            type=click.Choice(
+                                ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
+                            ),
+                            default="y",
+                        )
+                        if choice.lower() in ("n", "no"):
+                            paused_by_user = True
+                            click.echo(f"\nPaused at {processed_count}/{total_units} entries.")
+                            click.echo(f"To resume later, run: agents resume {job_id}")
+                            break
+                        elif choice.lower() in ("a", "all"):
+                            # Disable further check-ins
+                            final_checkin_interval = None
+                            click.echo("Continuing without further check-ins...")
+                        progress.start()
+
+            except CircuitBreakerTripped as exc:
+                progress.stop()
+                while True:
+                    choice = handle_circuit_breaker(
+                        exc, tracker, writer, processed_count, total_units, job_id
                     )
-                    if choice.lower() in ("n", "no"):
-                        paused_by_user = True
-                        click.echo(f"\nPaused at {processed_count}/{total_units} entries.")
-                        click.echo(f"To resume later, run: agents resume {job_id}")
+                    if choice == "c":
+                        engine.reset_circuit_breaker()
+                        click.echo("\nResuming processing...")
+                        progress.start()
+                        remaining = [
+                            u for u in units if u["_idx"] not in writer.get_completed_indices()
+                        ]
+                        try:
+                            for result in engine.process(remaining):
+                                writer.write_result(result)
+                                if "error" in result:
+                                    error_count += 1
+                                    tracker.increment_failed()
+                                elif "parse_error" in result:
+                                    parse_error_count += 1
+                                    tracker.increment_failed()
+                                tracker.update(1)
+                                progress.update(task, advance=1)
+                                processed_count += 1
+                        except CircuitBreakerTripped as new_exc:
+                            exc = new_exc
+                            progress.stop()
+                            continue
                         break
-                    elif choice.lower() in ("a", "all"):
-                        # Disable further check-ins
-                        final_checkin_interval = None
-                        click.echo("Continuing without further check-ins...")
-                    progress.start()
+                    elif choice == "a":
+                        click.echo(f"\nAborted. To resume later: agents resume {job_id}")
+                        failures_path = writer.write_failures_file()
+                        if failures_path:
+                            click.echo(f"Failed items saved to: {failures_path}")
+                        return
+                    elif choice == "i":
+                        click.echo("\n--- Full Error Details ---")
+                        click.echo(f"Error type: {exc.status['last_error_type']}")
+                        click.echo(f"Error message: {exc.status['last_error_message']}")
+                        click.echo(
+                            f"Failed unit: {json.dumps(exc.status['last_failed_unit'], indent=2, ensure_ascii=False)}"
+                        )
+                        click.echo("-" * 40)
+                        continue
 
         # Final checkpoint
         tracker.save_checkpoint()
@@ -373,6 +491,8 @@ def resume(
         include_raw = metadata.get("include_raw", False)
         # CLI arg overrides saved checkin_interval
         final_checkin_interval = checkin_interval or metadata.get("checkin_interval")
+        circuit_breaker_threshold = metadata.get("circuit_breaker_threshold", 5)
+        max_retries = metadata.get("max_retries", 3)
 
         # Use API key from checkpoint or CLI
         final_api_key = api_key or metadata.get("api_key")
@@ -386,7 +506,9 @@ def resume(
 
         # Initialize components
         adapter = get_adapter(input_file, output_file)
-        llm_client = LLMClient(api_key=final_api_key, model=model, max_tokens=max_tokens)
+        llm_client = LLMClient(
+            api_key=final_api_key, model=model, max_tokens=max_tokens, max_retries=max_retries
+        )
         prompt_template = PromptTemplate(prompt)
 
         processing_mode = (
@@ -400,6 +522,7 @@ def resume(
             post_process=not no_post_process,
             merge_results=not no_merge,
             include_raw_result=include_raw,
+            circuit_breaker_threshold=circuit_breaker_threshold,
         )
 
         # Load all units, assign indices, and filter to unprocessed
@@ -447,48 +570,98 @@ def resume(
         ) as progress:
             task = progress.add_task("Processing", total=total_remaining)
 
-            for result in engine.process(remaining_units):
-                writer.write_result(result)  # Write immediately
-                if "error" in result:
-                    error_count += 1
-                    tracker.increment_failed()
-                elif "parse_error" in result:
-                    parse_error_count += 1
-                    tracker.increment_failed()
-                tracker.update(1)
-                progress.update(task, advance=1)
-                processed_count += 1
+            try:
+                for result in engine.process(remaining_units):
+                    writer.write_result(result)  # Write immediately
+                    if "error" in result:
+                        error_count += 1
+                        tracker.increment_failed()
+                    elif "parse_error" in result:
+                        parse_error_count += 1
+                        tracker.increment_failed()
+                    tracker.update(1)
+                    progress.update(task, advance=1)
+                    processed_count += 1
 
-                # Check-in: pause every N entries to ask user if they want to continue
-                if (
-                    final_checkin_interval
-                    and processed_count % final_checkin_interval == 0
-                    and processed_count < total_remaining
-                ):
-                    # Save checkpoint before prompting
-                    tracker.save_checkpoint()
-                    progress.stop()
-                    total_done = len(completed_indices) + processed_count
-                    click.echo(
-                        f"\n[Check-in] Processed {total_done}/{len(all_units)} entries total ({processed_count} in this session)."
+                    # Check-in: pause every N entries to ask user if they want to continue
+                    if (
+                        final_checkin_interval
+                        and processed_count % final_checkin_interval == 0
+                        and processed_count < total_remaining
+                    ):
+                        # Save checkpoint before prompting
+                        tracker.save_checkpoint()
+                        progress.stop()
+                        total_done = len(completed_indices) + processed_count
+                        click.echo(
+                            f"\n[Check-in] Processed {total_done}/{len(all_units)} entries total ({processed_count} in this session)."
+                        )
+                        choice = click.prompt(
+                            "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
+                            type=click.Choice(
+                                ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
+                            ),
+                            default="y",
+                        )
+                        if choice.lower() in ("n", "no"):
+                            paused_by_user = True
+                            click.echo(f"\nPaused at {total_done}/{len(all_units)} entries.")
+                            click.echo(f"To resume later, run: agents resume {job_id}")
+                            break
+                        elif choice.lower() in ("a", "all"):
+                            # Disable further check-ins
+                            final_checkin_interval = None
+                            click.echo("Continuing without further check-ins...")
+                        progress.start()
+
+            except CircuitBreakerTripped as exc:
+                progress.stop()
+                total_units_for_display = len(all_units)
+                while True:
+                    choice = handle_circuit_breaker(
+                        exc, tracker, writer, processed_count, total_units_for_display, job_id
                     )
-                    choice = click.prompt(
-                        "Continue? [y]es / [n]o (pause to resume later) / [a]ll (finish without asking)",
-                        type=click.Choice(
-                            ["y", "n", "a", "yes", "no", "all"], case_sensitive=False
-                        ),
-                        default="y",
-                    )
-                    if choice.lower() in ("n", "no"):
-                        paused_by_user = True
-                        click.echo(f"\nPaused at {total_done}/{len(all_units)} entries.")
-                        click.echo(f"To resume later, run: agents resume {job_id}")
+                    if choice == "c":
+                        engine.reset_circuit_breaker()
+                        click.echo("\nResuming processing...")
+                        progress.start()
+                        still_remaining = [
+                            u
+                            for u in remaining_units
+                            if u["_idx"] not in writer.get_completed_indices()
+                        ]
+                        try:
+                            for result in engine.process(still_remaining):
+                                writer.write_result(result)
+                                if "error" in result:
+                                    error_count += 1
+                                    tracker.increment_failed()
+                                elif "parse_error" in result:
+                                    parse_error_count += 1
+                                    tracker.increment_failed()
+                                tracker.update(1)
+                                progress.update(task, advance=1)
+                                processed_count += 1
+                        except CircuitBreakerTripped as new_exc:
+                            exc = new_exc
+                            progress.stop()
+                            continue
                         break
-                    elif choice.lower() in ("a", "all"):
-                        # Disable further check-ins
-                        final_checkin_interval = None
-                        click.echo("Continuing without further check-ins...")
-                    progress.start()
+                    elif choice == "a":
+                        click.echo(f"\nAborted. To resume later: agents resume {job_id}")
+                        failures_path = writer.write_failures_file()
+                        if failures_path:
+                            click.echo(f"Failed items saved to: {failures_path}")
+                        return
+                    elif choice == "i":
+                        click.echo("\n--- Full Error Details ---")
+                        click.echo(f"Error type: {exc.status['last_error_type']}")
+                        click.echo(f"Error message: {exc.status['last_error_message']}")
+                        click.echo(
+                            f"Failed unit: {json.dumps(exc.status['last_failed_unit'], indent=2, ensure_ascii=False)}"
+                        )
+                        click.echo("-" * 40)
+                        continue
 
         # Final checkpoint
         tracker.save_checkpoint()
