@@ -285,6 +285,7 @@ def process(
 
         # Initialize progress tracker and incremental writer
         job_id = f"job_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+        click.echo(f"Job ID: {job_id}")
         checkpoint_dir = Path.cwd() / ".checkpoints"
         job_metadata = {
             "input_file": str(input_file),
@@ -432,19 +433,23 @@ def process(
         # Write failures to separate file if any
         failures_path = writer.write_failures_file()
 
-        click.echo(f"\nSuccessfully processed {len(all_results)} units")
-        click.echo(f"Job ID: {job_id}")
-
-        # Surface failures to user
+        # Summary
         total_failures = error_count + parse_error_count
+        successful_count = len(all_results) - total_failures
+
         if total_failures > 0:
-            click.echo(f"\nFailures: {total_failures} units", err=True)
+            click.echo(
+                f"\nCompleted with errors: {successful_count} succeeded, {total_failures} failed"
+            )
             if error_count > 0:
-                click.echo(f"  - Errors: {error_count}", err=True)
+                click.echo(f"  Errors: {error_count}")
             if parse_error_count > 0:
-                click.echo(f"  - Parse errors (after retries): {parse_error_count}", err=True)
+                click.echo(f"  Parse errors: {parse_error_count}")
             if failures_path:
-                click.echo(f"  - Failed items saved to: {failures_path}", err=True)
+                click.echo(f"  Failed items: {failures_path}")
+            click.echo(f"\nTo retry failures: agents resume {job_id} --retry-failures")
+        else:
+            click.echo(f"\nProcessed {len(all_results)} units")
 
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -682,19 +687,25 @@ def resume(
         # Write failures to separate file if any
         failures_path = writer.write_failures_file()
 
-        click.echo(f"\nSuccessfully processed {processed_count} additional units")
-        click.echo(f"Total processed: {len(all_results)}/{len(all_units)}")
-
-        # Surface failures to user
+        # Summary
         total_failures = error_count + parse_error_count
+        successful_this_run = processed_count - total_failures
+
         if total_failures > 0:
-            click.echo(f"\nFailures in this run: {total_failures} units", err=True)
+            click.echo(
+                f"\nCompleted with errors: {successful_this_run} succeeded, {total_failures} failed (this run)"
+            )
+            click.echo(f"Total: {len(all_results)}/{len(all_units)}")
             if error_count > 0:
-                click.echo(f"  - Errors: {error_count}", err=True)
+                click.echo(f"  Errors: {error_count}")
             if parse_error_count > 0:
-                click.echo(f"  - Parse errors (after retries): {parse_error_count}", err=True)
+                click.echo(f"  Parse errors: {parse_error_count}")
             if failures_path:
-                click.echo(f"  - Failed items saved to: {failures_path}", err=True)
+                click.echo(f"  Failed items: {failures_path}")
+            click.echo(f"\nTo retry failures: agents resume {job_id} --retry-failures")
+        else:
+            click.echo(f"\nProcessed {processed_count} additional units")
+            click.echo(f"Total: {len(all_results)}/{len(all_units)}")
 
     except FileNotFoundError:
         click.echo(f"Error: Checkpoint not found for job_id: {job_id}", err=True)

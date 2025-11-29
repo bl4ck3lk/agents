@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Production script for processing full vocabulary data with agents
-# This script processes Chinese vocabulary data from vocabulary.json and generates detailed study notes
+# This script processes Japanese vocabulary data from vocabulary_jp.json and generates detailed study notes
 
 set -e  # Exit on error
 
@@ -55,7 +55,7 @@ if [ -n "$RESUME_JOB" ]; then
 fi
 
 echo "=========================================="
-echo "Agents Full Vocabulary Processing Script"
+echo "Agents Full Japanese Vocabulary Processing Script"
 echo "=========================================="
 echo ""
 
@@ -71,8 +71,8 @@ if [ ! -f .env ]; then
 fi
 
 # Input configuration
-ORIGINAL_INPUT="data/vocabulary.json"
-FLAT_INPUT="data/vocabulary_flat.json"
+ORIGINAL_INPUT="data/vocabulary_jp.json"
+FLAT_INPUT="data/vocabulary_jp_flat.json"
 
 # Check if input file exists
 if [ ! -f "$ORIGINAL_INPUT" ]; then
@@ -82,11 +82,11 @@ fi
 
 # Create timestamped run folder
 RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-RUN_DIR="data/runs/run_${RUN_TIMESTAMP}"
+RUN_DIR="data/runs/run_jp_${RUN_TIMESTAMP}"
 mkdir -p "$RUN_DIR"
 
 # Output file in run folder
-OUTPUT_FILE="${RUN_DIR}/vocabulary_processed.json"
+OUTPUT_FILE="${RUN_DIR}/vocabulary_jp_processed.json"
 
 echo "Original Input: $ORIGINAL_INPUT"
 echo "Flat Input (cached): $FLAT_INPUT"
@@ -95,7 +95,7 @@ echo "Output file: $OUTPUT_FILE"
 echo ""
 
 # Step 1: Flatten the input JSON (skip if already exists, unless --force-flatten)
-# The original file has keys like "hsk1", "hsk2" containing lists. We want one big list.
+# The original file has keys like "jlpt_n5", "jlpt_n4" containing lists. We want one big list.
 if [ -f "$FLAT_INPUT" ] && [ "$FORCE_FLATTEN" = false ]; then
     echo -e "${GREEN}Flat input file already exists, skipping flattening step${NC}"
     ITEM_COUNT=$(python3 -c "import json; print(len(json.load(open('$FLAT_INPUT'))))")
@@ -136,38 +136,38 @@ fi
 echo ""
 
 # Step 2: Define the prompt
-# Using fields from vocabulary.json: simplified, pinyin, definition
+# Using fields from vocabulary_jp.json: word, reading, definition
 PROMPT="
-You're a helpful Chinese language assistant that will help students learn and memorize all Chinese HSK's vocabulary.
-Create a helpful study note for this Chinese vocabulary word. Be concise and accurate.
+You're a helpful Japanese language assistant that will help students learn and memorize Japanese vocabulary (JLPT levels N5-N1).
+Create a helpful study note for this Japanese vocabulary word. Be concise and accurate.
 Answers must not have any typos or grammatical errors. Also limited to a maximum of 1500 total output tokens.
 
-Word: {simplified}
-Pinyin: {pinyin}
+Word: {word}
+Reading: {reading}
 Translations: {definition}
 
 Create a simple example sentence using this word.
 IMPORTANT: Provide a word-by-word mapping of the example sentence to help learners understand the sentence structure.
 
 Return as JSON with keys:
-- traditional (this is the only place we care about the traditional form)
-- partOfSpeech (is missing or wrong.)
-- example (use simplified only! It must contain {simplified})
+- kanji (the kanji form if applicable, otherwise same as word)
+- partOfSpeech (noun, verb, adjective, adverb, particle, etc.)
+- example (use the word form provided! It must contain {word})
 - exampleTranslation
-- emoji (if, possible, add it. Multiples (Min. 1,Max. 5) if necessary to express the meaning.)
+- emoji (if possible, add it. Multiples (Min. 1, Max. 5) if necessary to express the meaning.)
 - etymology (concise and accurate. If you don't know for sure, leave it blank.)
-- relatedWords (if, possible, add it - hanzi, pinyin, main meaning(s). Always simplified)
+- relatedWords (if possible, add related words - word, reading, main meaning(s))
 - example: object containing:
-    - chinese: full Chinese sentence
-    - pinyin: full Pinyin for the sentence
+    - japanese: full Japanese sentence
+    - reading: full reading (hiragana/katakana) for the sentence
     - english: full English translation
-    - mapping: array of objects, where each object represents a word/phrase in the sentence with keys {{chinese, pinyin, english_meaning}}.
-- studyTip (very concise and accurate. Add good mnemonics to help learners remember the word.)"
+    - mapping: array of objects, where each object represents a word/phrase in the sentence with keys {{japanese, reading, english_meaning}}.
+- studyTip (very concise and accurate. Add good mnemonics to help learners remember the word. Consider kanji radicals, sound associations, or visual cues.)"
 
 # Save prompt to run folder for reference
 echo "$PROMPT" > "${RUN_DIR}/prompt.txt"
 
-echo "Processing vocabulary data..."
+echo "Processing Japanese vocabulary data..."
 echo "Prompt saved to: ${RUN_DIR}/prompt.txt"
 echo ""
 
@@ -217,9 +217,9 @@ if [ -f "$OUTPUT_FILE" ]; then
     echo "Output file size: $(wc -l < "$OUTPUT_FILE") lines"
 
     # Create a symlink to the latest run for convenience
-    LATEST_LINK="data/runs/latest"
+    LATEST_LINK="data/runs/latest_jp"
     rm -f "$LATEST_LINK"
-    ln -s "run_${RUN_TIMESTAMP}" "$LATEST_LINK"
+    ln -s "run_jp_${RUN_TIMESTAMP}" "$LATEST_LINK"
     echo ""
     echo -e "Latest run symlink: ${BLUE}$LATEST_LINK${NC}"
 else

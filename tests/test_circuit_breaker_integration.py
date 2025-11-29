@@ -88,7 +88,7 @@ def test_process_circuit_breaker_continue_then_succeed(tmp_path: Path) -> None:
 
     assert "Circuit breaker triggered" in result.output
     assert "Resuming processing" in result.output
-    assert "Successfully processed" in result.output
+    assert "Processed" in result.output
 
 
 def test_process_circuit_breaker_inspect_then_abort(tmp_path: Path) -> None:
@@ -161,5 +161,5 @@ def test_process_circuit_breaker_disabled(tmp_path: Path) -> None:
 
     # Should complete without prompting (no circuit breaker trip)
     assert "Circuit breaker triggered" not in result.output
-    assert "Successfully processed" in result.output
-    assert "Failures: 3" in result.output
+    assert "Completed with errors" in result.output
+    assert "3 failed" in result.output
