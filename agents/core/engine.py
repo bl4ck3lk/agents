@@ -260,9 +260,18 @@ class ProcessingEngine:
         # Create all tasks
         tasks = [asyncio.create_task(process_unit(unit)) for unit in units]
 
-        # Yield results as they complete
-        for coro in asyncio.as_completed(tasks):
-            result = await coro
-            # Check circuit breaker after each result
-            self._check_circuit_breaker()
-            yield result
+        try:
+            # Yield results as they complete
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                yield result
+                # Check circuit breaker after each result
+                self._check_circuit_breaker()
+        except CircuitBreakerTripped:
+            # Cancel all pending tasks to stop further API calls
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            # Wait for cancelled tasks to finish (suppress CancelledError)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise

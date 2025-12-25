@@ -205,3 +205,48 @@ def test_engine_circuit_breaker_disabled_when_zero(mock_llm_client: Mock) -> Non
     # All 10 should process (no circuit breaker)
     assert len(results) == 10
     assert all("error" in r for r in results)
+
+
+def test_async_circuit_breaker_cancels_pending_tasks() -> None:
+    """Test async processing cancels pending tasks when circuit breaker trips."""
+    call_count = 0
+
+    async def failing_complete(prompt: str) -> str:
+        nonlocal call_count
+        call_count += 1
+        # Add delay to simulate real API call - gives time for tasks to queue
+        await asyncio.sleep(0.05)
+        raise FatalLLMError(Exception("API error"))
+
+    client = Mock(spec=LLMClient)
+    client.complete_async = AsyncMock(side_effect=failing_complete)
+
+    template = PromptTemplate("Process: {text}")
+    engine = ProcessingEngine(
+        client,
+        template,
+        mode=ProcessingMode.ASYNC,
+        batch_size=5,  # Allow 5 concurrent
+        circuit_breaker_threshold=3,  # Trip after 3 failures
+        post_process=False,
+    )
+
+    # Create 20 units - many more than threshold
+    units = [{"text": f"item{i}"} for i in range(20)]
+    results = []
+
+    with pytest.raises(CircuitBreakerTripped):
+        for result in engine.process(units):
+            results.append(result)
+
+    # With concurrent processing, multiple failures may be recorded before we check.
+    # We should get at least 1 result before tripping.
+    assert len(results) >= 1
+
+    # Critical: should NOT have made all 20 API calls
+    # The first batch of 5 starts, but pending tasks (waiting on semaphore)
+    # should be cancelled when breaker trips.
+    # Allow for the first batch plus some that may have started, but not all 20.
+    assert call_count <= 10, f"Expected <=10 API calls but made {call_count}"
+    # Verify cancellation worked - should be way less than 20
+    assert call_count < 20, f"Cancellation failed: made all {call_count} API calls"
