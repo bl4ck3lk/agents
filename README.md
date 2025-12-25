@@ -14,6 +14,26 @@ uv pip install -e ".[dev]"
 agents process input.csv output.csv --prompt "Translate '{text}' to Spanish"
 ```
 
+## Web UI / API
+
+Run a FastAPI server with a lightweight UI for managing runs, viewing progress, testing prompts, and comparing models.
+
+```bash
+uv pip install -e .            # ensure fastapi/uvicorn deps are available
+agents-api                    # starts uvicorn on :8000
+# or
+uvicorn agents.api.app:app --reload --port 8000
+```
+
+Then open http://localhost:8000 to:
+- Start or resume runs (uses the same processing engine)
+- Watch live progress and recent results
+- Browse outputs (paginated from incremental JSONL)
+- Send one-off prompts
+- Compare multiple models on the same sample
+
+More detail: see `docs/ui.md` for UI walkthrough and REST endpoint reference.
+
 ### Command Options
 
 ```bash
