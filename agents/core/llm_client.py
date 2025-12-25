@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from agents.utils.config import DEFAULT_MAX_RETRIES, DEFAULT_MAX_TOKENS
+
 from openai import (
     APIError,
     APITimeoutError,
@@ -46,8 +48,8 @@ class LLMClient:
         model: str = "gpt-4o-mini",
         base_url: str | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 1500,
-        max_retries: int = 3,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         self.model = model
         self.temperature = temperature
