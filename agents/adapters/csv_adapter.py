@@ -36,13 +36,28 @@ class CSVAdapter(DataAdapter):
         if not results:
             return
 
-        # Get all unique keys from results
-        fieldnames = list(results[0].keys())
+        # Ensure columns are loaded
+        if not self._columns:
+            self.get_schema()
+
+        # Get original CSV columns if available, otherwise use all keys from results
+        if self._columns:
+            # Use original schema - only write fields that were in the input CSV
+            fieldnames = self._columns
+        else:
+            # Fallback: use all keys from results (for cases where schema wasn't loaded)
+            fieldnames = list(results[0].keys())
+
+        # Filter results to only include original CSV fields
+        filtered_results = []
+        for result in results:
+            filtered_result = {key: result.get(key, "") for key in fieldnames}
+            filtered_results.append(filtered_result)
 
         with open(self.output_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(results)
+            writer.writerows(filtered_results)
 
     def get_schema(self) -> dict[str, Any]:
         """Get CSV schema information."""
