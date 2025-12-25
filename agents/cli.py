@@ -28,7 +28,7 @@ from agents.core.circuit_breaker import CircuitBreakerTripped
 from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
-from agents.utils.config import load_config
+from agents.utils.config import DEFAULT_MAX_TOKENS, load_config
 from agents.utils.incremental_writer import IncrementalWriter
 from agents.utils.progress import ProgressTracker
 
@@ -127,7 +127,7 @@ def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     help="Processing mode",
 )
 @click.option("--batch-size", type=int, help="Batch size for async mode")
-@click.option("--max-tokens", type=int, help="Maximum tokens in LLM response (default: 1500)")
+@click.option("--max-tokens", type=int, help=f"Maximum tokens in LLM response (default: {DEFAULT_MAX_TOKENS})")
 @click.option(
     "--no-post-process",
     is_flag=True,
@@ -212,7 +212,7 @@ def process(
         final_base_url = base_url
         final_mode = mode or "sequential"
         final_batch_size = batch_size or 10
-        final_max_tokens = max_tokens or 1500
+        final_max_tokens = max_tokens or DEFAULT_MAX_TOKENS
         final_checkin_interval = checkin_interval
         final_circuit_breaker_threshold = circuit_breaker if circuit_breaker is not None else 5
         final_max_retries = 3
@@ -423,11 +423,15 @@ def process(
 
         # Read all results sorted by _idx and write final output
         all_results = writer.read_all_results()
-        # Strip internal fields from final output
+        # Strip internal and error fields from final output
         for r in all_results:
             r.pop("_idx", None)
             r.pop("_retries_exhausted", None)
             r.pop("_attempts", None)
+            r.pop("parse_error", None)
+            r.pop("error", None)
+            r.pop("result", None)  # Remove raw LLM result if present
+            r.pop("_raw_output", None)  # Remove debug raw output (kept in failures file)
         adapter.write_results(all_results)
 
         # Write failures to separate file if any
@@ -490,7 +494,7 @@ def resume(
         model = metadata["model"]
         mode = metadata["mode"]
         batch_size = metadata["batch_size"]
-        max_tokens = metadata.get("max_tokens", 1500)
+        max_tokens = metadata.get("max_tokens", DEFAULT_MAX_TOKENS)
         no_post_process = metadata.get("no_post_process", False)
         no_merge = metadata.get("no_merge", False)
         include_raw = metadata.get("include_raw", False)
@@ -677,11 +681,15 @@ def resume(
 
         # Read all results sorted by _idx and write final output
         all_results = writer.read_all_results()
-        # Strip internal fields from final output
+        # Strip internal and error fields from final output
         for r in all_results:
             r.pop("_idx", None)
             r.pop("_retries_exhausted", None)
             r.pop("_attempts", None)
+            r.pop("parse_error", None)
+            r.pop("error", None)
+            r.pop("result", None)  # Remove raw LLM result if present
+            r.pop("_raw_output", None)  # Remove debug raw output (kept in failures file)
         adapter.write_results(all_results)
 
         # Write failures to separate file if any
