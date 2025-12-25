@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agents UI</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Agents Control Panel</h1>
+      <p class="muted">Monitor runs, test prompts, and compare models.</p>
+    </div>
+    <div class="pill">v0.1</div>
+  </header>
+
+  <main>
+    <section class="card" id="start-section">
+      <div class="section-head">
+        <h2>Start Run</h2>
+        <small>Wraps the existing CLI (process).</small>
+      </div>
+      <form id="run-form" class="grid">
+        <label>Input file <input name="input_file" required placeholder="data/input.csv" /></label>
+        <label>Output file <input name="output_file" required placeholder="data/output.csv" /></label>
+        <label>Prompt <textarea name="prompt" rows="3" placeholder="Translate '{text}' to Spanish"></textarea></label>
+        <label>Config path (optional) <input name="config_path" placeholder="docs/examples/translation.yaml" /></label>
+        <label>Model <input name="model" placeholder="gpt-4o-mini" /></label>
+        <label>API key <input name="api_key" required placeholder="sk-..." /></label>
+        <label>Base URL <input name="base_url" placeholder="https://api.openai.com/v1" /></label>
+        <label>Mode <select name="mode">
+          <option value="">Default</option>
+          <option value="sequential">sequential</option>
+          <option value="async">async</option>
+        </select></label>
+        <label>Batch size <input name="batch_size" type="number" min="1" placeholder="10" /></label>
+        <label>Max tokens <input name="max_tokens" type="number" min="1" placeholder="1500" /></label>
+        <label>Check-in interval <input name="checkin_interval" type="number" min="1" placeholder="100" /></label>
+        <label class="inline"><input type="checkbox" name="include_raw" /> Include raw result</label>
+        <label class="inline"><input type="checkbox" name="no_post_process" /> Disable post-process</label>
+        <label class="inline"><input type="checkbox" name="no_merge" /> Do not merge parsed</label>
+        <button type="submit">Start Run</button>
+      </form>
+      <div id="start-msg" class="msg"></div>
+    </section>
+
+    <section class="card" id="runs-section">
+      <div class="section-head">
+        <h2>Runs</h2>
+        <small>Active + past (from .checkpoints).</small>
+      </div>
+      <div class="table-wrap">
+        <table id="runs-table">
+          <thead>
+            <tr><th>ID</th><th>Status</th><th>Progress</th><th>Model</th><th>Started</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="run-detail" class="detail"></div>
+    </section>
+
+    <section class="split">
+      <div class="card">
+        <div class="section-head">
+          <h2>Results Viewer</h2>
+          <small>Paginated from incremental JSONL.</small>
+        </div>
+        <div class="row">
+          <input id="results-job" placeholder="job id" />
+          <input id="results-offset" type="number" value="0" min="0" />
+          <input id="results-limit" type="number" value="20" min="1" max="200" />
+          <button id="load-results">Load</button>
+        </div>
+        <pre id="results-box" class="pre"></pre>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <h2>Prompt Lab</h2>
+          <small>Single prompt test.</small>
+        </div>
+        <form id="prompt-form" class="stack">
+          <input name="api_key" placeholder="API key" required />
+          <input name="model" placeholder="gpt-4o-mini" />
+          <textarea name="prompt" rows="3" placeholder="Prompt with {field}"></textarea>
+          <textarea name="variables" rows="3" placeholder='{"text": "hello"}'></textarea>
+          <button type="submit">Send</button>
+        </form>
+        <pre id="prompt-output" class="pre"></pre>
+      </div>
+    </section>
+
+    <section class="card" id="compare-section">
+      <div class="section-head">
+        <h2>Model Compare</h2>
+        <small>Send the same sample to multiple models.</small>
+      </div>
+      <form id="compare-form" class="stack">
+        <input name="api_key" placeholder="API key" required />
+        <input name="models" placeholder="gpt-4o-mini, gpt-4o" />
+        <textarea name="prompt" rows="3" placeholder="Prompt with {field}"></textarea>
+        <textarea name="sample" rows="3" placeholder='{"text": "hello"}'></textarea>
+        <button type="submit">Compare</button>
+      </form>
+      <div id="compare-results" class="grid-output"></div>
+    </section>
+  </main>
+
+  <script>
+    const runsTableBody = document.querySelector('#runs-table tbody');
+    const runDetail = document.querySelector('#run-detail');
+    const startMsg = document.querySelector('#start-msg');
+
+    async function fetchJSON(url, opts={}) {
+      const res = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...opts});
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function fmtPct(run) {
+      if (!run.total) return '—';
+      return `${run.processed}/${run.total} (${Math.round(run.processed/run.total*100)}%)`;
+    }
+
+    async function loadRuns() {
+      try {
+        const data = await fetchJSON('/runs');
+        runsTableBody.innerHTML = '';
+        data.runs.forEach(run => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${run.job_id}</td><td>${run.status}</td><td>${fmtPct(run)}</td><td>${run.model||''}</td><td>${run.started_at||''}</td><td><button data-id="${run.job_id}">View</button></td>`;
+          runsTableBody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    runsTableBody.addEventListener('click', async (e) => {
+      if (e.target.tagName === 'BUTTON') {
+        const id = e.target.getAttribute('data-id');
+        const data = await fetchJSON(`/runs/${id}`);
+        runDetail.innerHTML = `<h3>${data.run.job_id}</h3>
+          <p>Status: ${data.run.status} · ${fmtPct(data.run)}</p>
+          <p>Model: ${data.run.model} · Mode: ${data.run.mode} · Batch: ${data.run.batch_size}</p>
+          <p>Prompt: <code>${data.run.prompt_preview||''}</code></p>`;
+        document.querySelector('#results-job').value = id;
+      }
+    });
+
+    document.getElementById('run-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      startMsg.textContent = '';
+      const form = new FormData(e.target);
+      const payload = Object.fromEntries(form.entries());
+      ['include_raw','no_post_process','no_merge'].forEach(k=> payload[k] = form.get(k)==='on');
+      ['batch_size','max_tokens','checkin_interval'].forEach(k=>{if(payload[k]==='') delete payload[k]; else payload[k]=Number(payload[k])});
+      if (!payload.prompt && !payload.config_path) {
+        startMsg.textContent = 'Need prompt or config';
+        return;
+      }
+      if (payload.mode==='') delete payload.mode;
+      try {
+        const res = await fetchJSON('/runs', {method:'POST', body: JSON.stringify(payload)});
+        startMsg.textContent = `Started ${res.run.job_id}`;
+        loadRuns();
+      } catch (err) {
+        startMsg.textContent = err.message;
+      }
+    });
+
+    document.getElementById('load-results').addEventListener('click', async () => {
+      const job = document.getElementById('results-job').value.trim();
+      const offset = Number(document.getElementById('results-offset').value||0);
+      const limit = Number(document.getElementById('results-limit').value||20);
+      if (!job) return;
+      try {
+        const data = await fetchJSON(`/runs/${job}/results?offset=${offset}&limit=${limit}`);
+        document.getElementById('results-box').textContent = JSON.stringify(data.results, null, 2);
+      } catch (err) {
+        document.getElementById('results-box').textContent = err.message;
+      }
+    });
+
+    document.getElementById('prompt-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const payload = Object.fromEntries(form.entries());
+      try {
+        payload.variables = JSON.parse(payload.variables || '{}');
+      } catch {
+        document.getElementById('prompt-output').textContent = 'Invalid JSON variables';
+        return;
+      }
+      payload.model = payload.model || undefined;
+      try {
+        const data = await fetchJSON('/prompt-test', {method:'POST', body: JSON.stringify(payload)});
+        document.getElementById('prompt-output').textContent = data.output;
+      } catch (err) {
+        document.getElementById('prompt-output').textContent = err.message;
+      }
+    });
+
+    document.getElementById('compare-form').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const payload = Object.fromEntries(form.entries());
+      try { payload.sample = JSON.parse(payload.sample || '{}'); } catch { document.getElementById('compare-results').textContent='Invalid sample JSON'; return; }
+      payload.models = (payload.models || '').split(',').map(s=>s.trim()).filter(Boolean);
+      try {
+        const data = await fetchJSON('/compare', {method:'POST', body: JSON.stringify(payload)});
+        const wrap = document.getElementById('compare-results');
+        wrap.innerHTML = '';
+        data.results.forEach(r=>{
+          const div = document.createElement('div');
+          div.className='mini-card';
+          div.innerHTML = `<strong>${r.model}</strong><pre>${r.output}</pre>`;
+          wrap.appendChild(div);
+        });
+      } catch (err) {
+        document.getElementById('compare-results').textContent = err.message;
+      }
+    });
+
+    loadRuns();
+    setInterval(loadRuns, 4000);
+  </script>
+</body>
+</html>

@@ -180,6 +180,13 @@ def test_resume_command_with_invalid_job_id(runner: CliRunner) -> None:
     assert "not found" in result.output.lower() or "error" in result.output.lower()
 
 
+def test_resume_retry_failures_flag_exists() -> None:
+    """Test --retry-failures flag is accepted by resume command."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["resume", "--help"])
+    assert "--retry-failures" in result.output
+
+
 def test_get_adapter_sqlite_uri(tmp_path: Path) -> None:
     """Test that get_adapter detects and handles sqlite:// URIs."""
     from agents.adapters.sqlite_adapter import SQLiteAdapter

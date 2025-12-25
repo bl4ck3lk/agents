@@ -81,8 +81,11 @@ class PostProcessor:
         else:
             # If parsing failed, add error info
             processed["parse_error"] = "Failed to extract JSON from LLM output"
+            # Always keep raw result when parsing fails for debugging
+            # Store it in a separate field so it doesn't interfere with output
+            processed["_raw_output"] = raw_result
 
-        # Remove raw result if not requested
+        # Remove raw result if not requested (but keep _raw_output for parse errors)
         if not include_raw and "result" in processed:
             del processed["result"]
 

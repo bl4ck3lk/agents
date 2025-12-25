@@ -12,25 +12,35 @@ from pydantic import BaseModel, Field
 project_root = Path(__file__).parent.parent.parent
 load_dotenv(project_root / ".env")
 
+# Default configuration constants
+DEFAULT_MAX_TOKENS = 5000
+DEFAULT_MODEL = "openai/gpt-5-mini"
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_BATCH_SIZE = 10
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
+
 
 class LLMConfig(BaseModel):
     """LLM configuration."""
 
     provider: str = "openai"
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_MODEL
     base_url: str | None = None
     api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    temperature: float = 0.7
-    max_tokens: int = 500
+    temperature: float = DEFAULT_TEMPERATURE
+    max_tokens: int = DEFAULT_MAX_TOKENS
 
 
 class ProcessingConfig(BaseModel):
     """Processing configuration."""
 
     mode: str = "async"
-    batch_size: int = 10
-    max_retries: int = 3
+    batch_size: int = DEFAULT_BATCH_SIZE
+    max_retries: int = DEFAULT_MAX_RETRIES
     retry_delay: float = 1.0
+    checkin_interval: int | None = None  # Pause every N entries to ask user to continue
+    circuit_breaker_threshold: int = DEFAULT_CIRCUIT_BREAKER_THRESHOLD
 
 
 class OutputConfig(BaseModel):
