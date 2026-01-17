@@ -7,15 +7,23 @@ import pytest
 
 from agents.core.circuit_breaker import CircuitBreakerTripped
 from agents.core.engine import ProcessingEngine, ProcessingMode
-from agents.core.llm_client import FatalLLMError, LLMClient
+from agents.core.llm_client import FatalLLMError, LLMClient, LLMResponse, UsageMetadata
 from agents.core.prompt import PromptTemplate
+
+
+def make_llm_response(prompt: str) -> LLMResponse:
+    """Create an LLMResponse with mock usage data."""
+    return LLMResponse(
+        content=f"Result: {prompt}",
+        usage=UsageMetadata(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+    )
 
 
 @pytest.fixture
 def mock_llm_client() -> Mock:
     """Mock LLM client."""
     client = Mock(spec=LLMClient)
-    client.complete.side_effect = lambda prompt: f"Result: {prompt}"
+    client.complete_with_usage.side_effect = lambda prompt: make_llm_response(prompt)
     return client
 
 
@@ -24,11 +32,11 @@ def mock_async_llm_client() -> Mock:
     """Mock async LLM client."""
     client = Mock(spec=LLMClient)
 
-    async def async_complete(prompt: str) -> str:
+    async def async_complete(prompt: str) -> LLMResponse:
         await asyncio.sleep(0.01)  # Simulate async delay
-        return f"Result: {prompt}"
+        return make_llm_response(prompt)
 
-    client.complete_async = AsyncMock(side_effect=async_complete)
+    client.complete_with_usage_async = AsyncMock(side_effect=async_complete)
     return client
 
 
@@ -43,17 +51,20 @@ def test_sequential_processing(mock_llm_client: Mock) -> None:
     results = list(engine.process(units))
 
     assert len(results) == 2
-    assert results[0] == {"text": "hello", "result": "Result: Process: hello"}
-    assert results[1] == {"text": "world", "result": "Result: Process: world"}
-    assert mock_llm_client.complete.call_count == 2
+    assert results[0]["text"] == "hello"
+    assert results[0]["result"] == "Result: Process: hello"
+    assert "_usage" in results[0]  # Usage tracking
+    assert results[1]["text"] == "world"
+    assert results[1]["result"] == "Result: Process: world"
+    assert mock_llm_client.complete_with_usage.call_count == 2
 
 
 def test_processing_with_error_handling(mock_llm_client: Mock) -> None:
     """Test processing handles errors gracefully."""
-    mock_llm_client.complete.side_effect = [
-        "Success",
+    mock_llm_client.complete_with_usage.side_effect = [
+        LLMResponse(content="Success", usage=UsageMetadata(10, 20, 30)),
         Exception("API error"),
-        "Success again",
+        LLMResponse(content="Success again", usage=UsageMetadata(10, 20, 30)),
     ]
 
     template = PromptTemplate("Process: {text}")
@@ -65,9 +76,11 @@ def test_processing_with_error_handling(mock_llm_client: Mock) -> None:
     results = list(engine.process(units))
 
     assert len(results) == 3
-    assert results[0] == {"text": "one", "result": "Success"}
-    assert "error" in results[1]
-    assert results[2] == {"text": "three", "result": "Success again"}
+    assert results[0]["text"] == "one"
+    assert results[0]["result"] == "Success"
+    assert "_error" in results[1]
+    assert results[2]["text"] == "three"
+    assert results[2]["result"] == "Success again"
 
 
 def test_async_processing(mock_async_llm_client: Mock) -> None:
@@ -81,22 +94,26 @@ def test_async_processing(mock_async_llm_client: Mock) -> None:
     results = list(engine.process(units))
 
     assert len(results) == 3
-    assert results[0] == {"text": "hello", "result": "Result: Process: hello"}
-    assert results[1] == {"text": "world", "result": "Result: Process: world"}
-    assert results[2] == {"text": "async", "result": "Result: Process: async"}
-    assert mock_async_llm_client.complete_async.call_count == 3
+    assert results[0]["text"] == "hello"
+    assert results[0]["result"] == "Result: Process: hello"
+    assert "_usage" in results[0]
+    assert results[1]["text"] == "world"
+    assert results[1]["result"] == "Result: Process: world"
+    assert results[2]["text"] == "async"
+    assert results[2]["result"] == "Result: Process: async"
+    assert mock_async_llm_client.complete_with_usage_async.call_count == 3
 
 
 def test_async_processing_with_error_handling(mock_async_llm_client: Mock) -> None:
     """Test async processing handles errors gracefully."""
 
-    async def async_complete_with_errors(prompt: str) -> str:
+    async def async_complete_with_errors(prompt: str) -> LLMResponse:
         if "two" in prompt:
             raise Exception("API error")
         await asyncio.sleep(0.01)
-        return f"Result: {prompt}"
+        return make_llm_response(prompt)
 
-    mock_async_llm_client.complete_async = AsyncMock(side_effect=async_complete_with_errors)
+    mock_async_llm_client.complete_with_usage_async = AsyncMock(side_effect=async_complete_with_errors)
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
@@ -109,9 +126,11 @@ def test_async_processing_with_error_handling(mock_async_llm_client: Mock) -> No
     assert len(results) == 3
     # Async results may come back in any order, so check by text field
     results_by_text = {r["text"]: r for r in results}
-    assert results_by_text["one"] == {"text": "one", "result": "Result: Process: one"}
-    assert "error" in results_by_text["two"]
-    assert results_by_text["three"] == {"text": "three", "result": "Result: Process: three"}
+    assert results_by_text["one"]["text"] == "one"
+    assert results_by_text["one"]["result"] == "Result: Process: one"
+    assert "_error" in results_by_text["two"]
+    assert results_by_text["three"]["text"] == "three"
+    assert results_by_text["three"]["result"] == "Result: Process: three"
 
 
 def test_async_processing_respects_batch_size(mock_async_llm_client: Mock) -> None:
@@ -134,7 +153,7 @@ def test_async_processing_respects_batch_size(mock_async_llm_client: Mock) -> No
 
 def test_engine_tracks_fatal_errors_in_circuit_breaker(mock_llm_client: Mock) -> None:
     """Test engine counts fatal errors toward circuit breaker."""
-    mock_llm_client.complete.side_effect = FatalLLMError(Exception("Permission denied"))
+    mock_llm_client.complete_with_usage.side_effect = FatalLLMError(Exception("Permission denied"))
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
@@ -159,11 +178,11 @@ def test_engine_tracks_fatal_errors_in_circuit_breaker(mock_llm_client: Mock) ->
 
 def test_engine_resets_circuit_breaker_on_success(mock_llm_client: Mock) -> None:
     """Test circuit breaker resets after successful processing."""
-    mock_llm_client.complete.side_effect = [
+    mock_llm_client.complete_with_usage.side_effect = [
         FatalLLMError(Exception("err1")),
         FatalLLMError(Exception("err2")),
-        "Success",
-        "Success",
+        LLMResponse(content="Success", usage=UsageMetadata(10, 20, 30)),
+        LLMResponse(content="Success", usage=UsageMetadata(10, 20, 30)),
     ]
 
     template = PromptTemplate("Process: {text}")
@@ -180,15 +199,15 @@ def test_engine_resets_circuit_breaker_on_success(mock_llm_client: Mock) -> None
 
     # All 4 should process (breaker never trips because success resets counter)
     assert len(results) == 4
-    assert "error" in results[0]
-    assert "error" in results[1]
+    assert "_error" in results[0]
+    assert "_error" in results[1]
     assert results[2]["result"] == "Success"
     assert results[3]["result"] == "Success"
 
 
 def test_engine_circuit_breaker_disabled_when_zero(mock_llm_client: Mock) -> None:
     """Test circuit breaker is disabled when threshold is 0."""
-    mock_llm_client.complete.side_effect = FatalLLMError(Exception("err"))
+    mock_llm_client.complete_with_usage.side_effect = FatalLLMError(Exception("err"))
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
@@ -204,14 +223,14 @@ def test_engine_circuit_breaker_disabled_when_zero(mock_llm_client: Mock) -> Non
 
     # All 10 should process (no circuit breaker)
     assert len(results) == 10
-    assert all("error" in r for r in results)
+    assert all("_error" in r for r in results)
 
 
 def test_async_circuit_breaker_cancels_pending_tasks() -> None:
     """Test async processing cancels pending tasks when circuit breaker trips."""
     call_count = 0
 
-    async def failing_complete(prompt: str) -> str:
+    async def failing_complete(prompt: str) -> LLMResponse:
         nonlocal call_count
         call_count += 1
         # Add delay to simulate real API call - gives time for tasks to queue
@@ -219,7 +238,7 @@ def test_async_circuit_breaker_cancels_pending_tasks() -> None:
         raise FatalLLMError(Exception("API error"))
 
     client = Mock(spec=LLMClient)
-    client.complete_async = AsyncMock(side_effect=failing_complete)
+    client.complete_with_usage_async = AsyncMock(side_effect=failing_complete)
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(
