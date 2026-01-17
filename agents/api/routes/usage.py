@@ -96,14 +96,14 @@ async def list_usage(
             start = datetime.fromisoformat(start_date)
             query = query.where(Usage.created_at >= start)
         except ValueError:
-            pass
+            pass  # Invalid date format - ignore filter
 
     if end_date:
         try:
             end = datetime.fromisoformat(end_date)
             query = query.where(Usage.created_at <= end)
         except ValueError:
-            pass
+            pass  # Invalid date format - ignore filter
 
     if model:
         query = query.where(Usage.model == model)
@@ -251,14 +251,14 @@ async def export_usage(
             start = datetime.fromisoformat(start_date)
             query = query.where(Usage.created_at >= start)
         except ValueError:
-            pass
+            pass  # Invalid date format - ignore filter
 
     if end_date:
         try:
             end = datetime.fromisoformat(end_date)
             query = query.where(Usage.created_at <= end)
         except ValueError:
-            pass
+            pass  # Invalid date format - ignore filter
 
     query = query.order_by(Usage.created_at.desc())
     result = await session.execute(query)

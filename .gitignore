@@ -57,5 +57,6 @@ data/
 # Node.js
 node_modules/
 .next/
+*.tsbuildinfo
 
 

@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from agents.adapters import get_adapter
+from agents.utils.config_env import get_env_bool
 
 logger = logging.getLogger(__name__)
-from agents.utils.content_moderation import ContentModerator
 
 # Update progress every N items
 PROGRESS_UPDATE_INTERVAL = 10

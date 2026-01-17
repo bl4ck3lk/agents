@@ -2,9 +2,9 @@
 
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
-from agents.api.utils.file_parser import parse_file_metadata, FileMetadata
+from agents.api.utils.file_parser import parse_file_metadata
 
 
 class TestFileMetadataDetection:

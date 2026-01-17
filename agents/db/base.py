@@ -15,7 +15,7 @@ class Base(DeclarativeBase):
     id: Any
 
     @declared_attr.directive
-    def __tablename__(cls) -> str:
+    def __tablename__(cls) -> str:  # noqa: N805 - cls is correct for declared_attr
         """Generate table name from class name."""
         return cls.__name__.lower() + "s"
 

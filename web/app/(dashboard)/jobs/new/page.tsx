@@ -27,7 +27,7 @@ export default function NewJobPage() {
   const [currentStep, setCurrentStep] = useState<Step>('upload');
 
   // Step 1: File upload
-  const [file, setFile] = useState<File | null>(null);
+  const [_file, setFile] = useState<File | null>(null);
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -351,7 +351,7 @@ export default function NewJobPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setFile(null);
+                      setFile(null);  // Reset file state
                       setFileInfo(null);
                     }}
                     className="text-gray-400 hover:text-gray-500"

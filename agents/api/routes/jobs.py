@@ -26,6 +26,19 @@ from agents.utils.model_validation import validate_model
 from agents.processing_service.usage_tracker import get_usage_tracker
 
 
+class UsageLimitsExceeded(HTTPException):
+    """Exception raised when user exceeds usage limits."""
+
+    def __init__(self, current_usage: Decimal, limit: Decimal):
+        detail = f"Monthly usage limit exceeded: ${current_usage:.2f} of ${limit:.2f} used"
+        super().__init__(status_code=429, detail=detail)
+
+
+def check_usage_limits_enabled() -> bool:
+    """Check if usage limits feature is enabled."""
+    return get_env_bool("USAGE_LIMITS_ENABLED", default=False)
+
+
 async def get_active_platform_key(
     session: AsyncSession, provider: str = "openrouter"
 ) -> PlatformAPIKey | None:
@@ -213,110 +226,6 @@ async def create_job(
         provider = stored_key.provider
     elif not api_key:
         # Try to get default key for model's provider
-        api_key = await get_decrypted_api_key(str(user.id), "openrouter", session)
-        if not api_key:
-            api_key = await get_decrypted_api_key(str(user.id), "openai", session)
-            if api_key:
-                provider = "openai"
-
-    # Platform key fallback: if user has no key but can use platform key
-    if not api_key and user.can_use_platform_key:
-        platform_key = await get_active_platform_key(session, provider="openrouter")
-        if platform_key:
-            encryption = get_encryption()
-            api_key = encryption.decrypt(platform_key.encrypted_key)
-            base_url = platform_key.base_url
-            provider = platform_key.provider
-            used_platform_key = True
-            # Default base_url for OpenRouter if not set in platform key
-            if not base_url and provider == "openrouter":
-                base_url = "https://openrouter.ai/api/v1"
-
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="No API key available. Either provide api_key, api_key_id, store a default key, or request platform key access.",
-        )
-
-    # Generate job ID and S3 keys
-    job_id = generate_job_id()
-    input_file_url = storage.get_s3_url(body.input_file_key)
-    results_key = storage.generate_results_key(job_id)
-    results_url = storage.get_s3_url(results_key)
-
-    # Create job record
-    config_dict = body.config.model_dump() if body.config else {}
-    job = WebJob(
-        id=job_id,
-        user_id=str(user.id),
-        input_file_url=input_file_url,
-        prompt=body.prompt,
-        model=body.model,
-        config=config_dict,
-        status="pending",
-    )
-
-    session.add(job)
-    await session.commit()
-    await session.refresh(job)
-
-    # Insert task into TaskQ
-    task_payload = {
-        "web_job_id": job.id,
-        "file_url": input_file_url,
-        "prompt": body.prompt,
-        "model": body.model,
-        "config": config_dict,
-        "api_key": api_key,
-        "results_url": results_url,
-        "base_url": base_url,
-        # Usage tracking fields
-        "user_id": str(user.id),
-        "provider": provider,
-        "used_platform_key": used_platform_key,
-    }
-
-    try:
-        taskq_task_id = await enqueue_task(
-            session,
-            payload=task_payload,
-            idempotency_key=job.id,
-        )
-
-        # Update job with TaskQ task ID
-        job.taskq_task_id = taskq_task_id
-        await session.commit()
-    except ValueError as e:
-        # TaskQ queue not found - log but don't fail job creation
-        # Job will remain in "pending" state until TaskQ is set up
-        logging.warning(f"TaskQ enqueue failed for job {job.id}: {e}")
-
-    return JobResponse(
-        id=job.id,
-        status=job.status,
-        input_file_url=job.input_file_url,
-        output_file_url=job.output_file_url,
-        prompt=job.prompt,
-        model=job.model,
-        config=job.config,
-        total_units=job.total_units,
-        processed_units=job.processed_units,
-        failed_units=job.failed_units,
-        created_at=job.created_at.isoformat(),
-        started_at=job.started_at.isoformat() if job.started_at else None,
-        completed_at=job.completed_at.isoformat() if job.completed_at else None,
-        error_message=job.error_message,
-    )
-        )
-        stored_key = result.scalar_one_or_none()
-        if not stored_key:
-            raise HTTPException(status_code=404, detail="API key not found")
-
-        encryption = get_encryption()
-        api_key = encryption.decrypt(stored_key.encrypted_key)
-        provider = stored_key.provider
-    elif not api_key:
-        # Try to get default key for the model's provider
         api_key = await get_decrypted_api_key(str(user.id), "openrouter", session)
         if not api_key:
             api_key = await get_decrypted_api_key(str(user.id), "openai", session)

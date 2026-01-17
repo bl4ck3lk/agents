@@ -1,7 +1,6 @@
 """Test SQL injection protection in db_helpers."""
 
 import asyncio
-from datetime import UTC, datetime
 
 from agents.processing_service.db_helpers import update_job_status
 

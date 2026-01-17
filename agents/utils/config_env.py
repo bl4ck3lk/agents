@@ -1,7 +1,6 @@
 """Configuration utilities for the application."""
 
 import os
-from typing import Any
 
 
 def get_env_bool(key: str, default: bool = False) -> bool:

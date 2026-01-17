@@ -68,7 +68,7 @@ def analyze_failure(failure_data: dict) -> None:
                 try:
                     parsed = json.loads(json_str)
                     print(f"  ✅ Found valid JSON in markdown! Keys: {list(parsed.keys())[:5]}")
-                except:
+                except json.JSONDecodeError:
                     print(f"  ❌ JSON in markdown is invalid")
         elif not raw_output.strip().startswith("{"):
             print("  ❌ Response doesn't start with '{'")
@@ -127,8 +127,8 @@ def check_checkpoint_file(job_id: str, failure_key: str, failure_idx: int) -> No
                     data = json.loads(line)
                     if data.get('key') == failure_key and data.get('_idx') == failure_idx:
                         attempts.append((line_num, data))
-                except:
-                    pass
+                except json.JSONDecodeError:
+                    pass  # Skip malformed JSON lines in checkpoint file
     
     if attempts:
         print(f"Found {len(attempts)} attempt(s) in checkpoint file:\n")

@@ -23,7 +23,7 @@ def make_llm_response(prompt: str) -> LLMResponse:
 def mock_llm_client() -> Mock:
     """Mock LLM client."""
     client = Mock(spec=LLMClient)
-    client.complete_with_usage.side_effect = lambda prompt: make_llm_response(prompt)
+    client.complete_with_usage.side_effect = make_llm_response
     return client
 
 

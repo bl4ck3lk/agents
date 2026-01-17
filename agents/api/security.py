@@ -1,7 +1,6 @@
 """Security utilities for API key encryption."""
 
 import os
-import secrets
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 
 from cryptography.fernet import Fernet

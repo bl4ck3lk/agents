@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import case, text
+from sqlalchemy import text
 
 from agents.db.session import async_session_maker
 
