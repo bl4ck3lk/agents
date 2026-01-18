@@ -1,7 +1,6 @@
 """Job management routes."""
 
 import logging
-import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
