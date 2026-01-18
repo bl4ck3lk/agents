@@ -10,31 +10,13 @@ from typing import Any
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from agents.api.auth import auth_backend, fastapi_users
-from agents.api.auth.schemas import UserCreate, UserRead, UserUpdate
-from agents.api.job_manager import JobManager
-from agents.api.routes import api_keys_router, files_router, jobs_router
-from agents.api.routes.admin import router as admin_router
-from agents.api.routes.usage import router as usage_router
-from agents.api.schemas import (
-    CompareRequest,
-    CompareResponse,
-    CompareResult,
-    PromptTestRequest,
-    PromptTestResponse,
-    ResultsResponse,
-    RunCreateRequest,
-    RunDetailResponse,
-    RunListResponse,
-    RunResumeRequest,
-)
 
 # Initialize Sentry for error monitoring
 SENTRY_DSN = os.getenv("SENTRY_DSN")
@@ -50,7 +32,7 @@ if SENTRY_DSN:
         ],
         # Don't send PII
         send_default_pii=False,
-    )  # noqa: E402
+    )
 
 from agents.api.auth import auth_backend, fastapi_users
 from agents.api.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -87,20 +69,6 @@ def get_user_identifier(request: Request) -> str:
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_user_identifier)
-
-
-# Rate limit exception handler
-def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    return JSONResponse(
-        status_code=429,
-        content={"error": "Rate limit exceeded"},
-    )
-
-
-# Initialize FastAPI app
-app = FastAPI(title="Agents API")
-
-app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 
 @asynccontextmanager
@@ -268,8 +236,8 @@ def create_run(request: Request, body: RunCreateRequest) -> Any:
         no_post_process=body.no_post_process,
         no_merge=body.no_merge,
         checkin_interval=body.checkin_interval,
-    )  # noqa: E402
-    info = manager.get_run(job.job_id)  # noqa: E402
+    )
+    info = manager.get_run(job.job_id)
     return RunDetailResponse(run=info, metadata=manager._job_metadata(job))
 
 
