@@ -1,0 +1,101 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agents
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        command: server /data --console-address ":9001"
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Wait for services
+        run: |
+          sleep 5
+
+      - name: Setup MinIO bucket
+        run: |
+          pip install mc
+          mc alias set minio http://localhost:9000 minioadmin minioadmin
+          mc mb minio/agents --ignore-existing
+        env:
+          MC_HOST_minio: http://minioadmin:minioadmin@localhost:9000
+
+      - name: Run database migrations
+        run: |
+          uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/agents
+
+      - name: Run integration tests
+        run: pytest tests/ -v -m integration
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/agents
+          S3_ENDPOINT_URL: http://localhost:9000
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          S3_BUCKET_NAME: agents
+          ENCRYPTION_KEY: _S2uN0jJ6A-k0yROjOMoXYMt3jVbhP_jM9HoDCPq8ss=
+          SECRET_KEY: test-secret-key-for-github-actions
+          REDIS_URL: redis://localhost:6379/0
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: pytest.xml

@@ -1,0 +1,79 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy-frontend:
+    name: Deploy Frontend to Vercel
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./web
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.PRODUCTION_API_URL }}
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build Project Artifacts
+        working-directory: ./web
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        working-directory: ./web
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+  deploy-backend:
+    name: Deploy Backend to Railway
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: railwayapp/cli-action@v1.5.0
+        with:
+          railway-token: ${{ secrets.RAILWAY_TOKEN }}
+          service: ${{ secrets.RAILWAY_SERVICE_ID }}
+          command: up
+
+  health-check:
+    name: Health Check
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend, deploy-backend]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Wait for deployment
+        run: sleep 60
+
+      - name: Check API health
+        run: |
+          curl -f ${{ secrets.PRODUCTION_API_URL }}/health || exit 1
+
+      - name: Check frontend
+        run: |
+          curl -f ${{ secrets.PRODUCTION_FRONTEND_URL }} || exit 1
