@@ -548,16 +548,26 @@ async def delete_job(
     try:
         results_key = storage.generate_results_key(job_id)
         await storage.delete_file(results_key)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Best-effort cleanup: failures deleting S3 results should not block job deletion
+        logging.exception(
+            "Failed to delete results file from storage for job_id=%s, key=%s",
+            job_id,
+            results_key,
+        )
 
     # Delete output file if exists
     if job.output_file_url:
         try:
             _, output_key = storage.parse_s3_url(job.output_file_url)
             await storage.delete_file(output_key)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort cleanup: failures deleting S3 output should not block job deletion
+            logging.exception(
+                "Failed to delete output file from storage for job_id=%s, key=%s",
+                job_id,
+                output_key,
+            )
 
     # Delete job record
     await session.delete(job)
