@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.adapters import get_adapter
+from agents.processing_service.schemas import ProcessRequest, ProcessResponse
 from agents.utils.config_env import get_env_bool
 
 logger = logging.getLogger(__name__)

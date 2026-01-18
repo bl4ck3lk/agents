@@ -33,8 +33,7 @@ class SQLiteAdapter(DataAdapter):
         cursor = conn.execute(self.query)
 
         for row in cursor:
-            yield {key: str(row[key]) for key in row}
-
+            yield {key: str(row[key]) for key in row.keys()}
         conn.close()
 
     def write_results(self, results: list[dict[str, Any]]) -> None:

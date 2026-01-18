@@ -1,10 +1,12 @@
 """Test SQL injection protection in db_helpers."""
 
 import asyncio
+import pytest
 
 from agents.processing_service.db_helpers import update_job_status
 
 
+@pytest.mark.integration
 async def test_sql_injection_protection():
     """Test that SQL injection is prevented via parameterized queries."""
     job_id = "test-job-123"
