@@ -4,9 +4,7 @@ version = "0.1.0"
 description = "LLM batch processing CLI tool"
 authors = [{name = "Your Name", email = "you@example.com"}]
 readme = "README.md"
-# NOTE: Python 3.14 is specified intentionally for forward-compatibility testing.
-# For production use, change to ">=3.12" until Python 3.14 is released.
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "openai>=1.50.0",
     "click>=8.1.7",
@@ -63,15 +61,13 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
-# NOTE: py314 specified for forward-compatibility; use py312 for current production
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
-# NOTE: 3.14 specified for forward-compatibility; use 3.12 for current production
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
