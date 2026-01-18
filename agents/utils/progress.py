@@ -67,7 +67,7 @@ class ProgressTracker:
             json.dump(data, f, indent=2)
 
     @classmethod
-    def load_checkpoint(cls, checkpoint_dir: str, job_id: str) -> "ProgressTracker":
+    def load_checkpoint(cls, checkpoint_dir: str, job_id: str) -> ProgressTracker:
         """
         Load progress from checkpoint file.
 

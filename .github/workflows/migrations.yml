@@ -1,0 +1,120 @@
+name: Test Migrations
+
+on:
+  pull_request:
+    paths:
+      - 'alembic/versions/**'
+      - 'agents/**/models.py'
+      - 'agents/**/schemas.py'
+
+jobs:
+  test-migrations:
+    name: Test Database Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agents_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Check migration files format
+        run: |
+          for file in alembic/versions/*.py; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+              ruff check "$file"
+              ruff format --check "$file"
+            fi
+          done
+
+      - name: Run migrations upgrade
+        run: |
+          uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/agents_test
+
+      - name: Verify migration revision
+        run: |
+          CURRENT=$(uv run alembic current)
+          echo "Current revision: $CURRENT"
+
+      - name: Run migrations downgrade
+        run: |
+          uv run alembic downgrade base
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/agents_test
+
+      - name: Run migrations upgrade again
+        run: |
+          uv run alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/agents_test
+
+      - name: Check for duplicate revision IDs
+        run: |
+          REVISIONS=$(grep -h '^revision = ' alembic/versions/*.py | awk '{print $3}' | tr -d "'" | sort | uniq -d)
+          if [ -n "$REVISIONS" ]; then
+            echo "Error: Duplicate revision IDs found: $REVISIONS"
+            exit 1
+          fi
+
+      - name: Validate migration dependencies
+        run: |
+          python -c "
+          import re
+          import sys
+          from pathlib import Path
+
+          versions_dir = Path('alembic/versions')
+          revisions = {}
+
+          for file in versions_dir.glob('*.py'):
+              content = file.read_text()
+              rev_match = re.search(r\"revision = ['\\\"]([^'\\\"]+)['\\\"]\", content)
+              down_match = re.search(r\"down_revision = (?:None|['\\\"]([^'\\\"]+)['\\\"])\")
+
+              if rev_match:
+                  rev_id = rev_match.group(1)
+                  down_rev = down_match.group(1) if down_match and down_match.group(1) else None
+                  revisions[rev_id] = {'file': file, 'down': down_rev}
+
+          # Check for circular dependencies
+          for rev_id, info in revisions.items():
+              current = info['down']
+              visited = set()
+              while current and current not in visited:
+                  if current == rev_id:
+                      print(f'Error: Circular dependency detected starting at {rev_id}')
+                      sys.exit(1)
+                  visited.add(current)
+                  current = revisions.get(current, {}).get('down')
+
+          print('Migration dependency validation passed!')
+          "

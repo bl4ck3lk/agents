@@ -1,7 +1,6 @@
 """User manager for fastapi-users."""
 
 import uuid
-from typing import Optional
 
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, UUIDIDMixin
@@ -17,13 +16,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = auth_config.secret_key
     verification_token_secret = auth_config.secret_key
 
-    async def on_after_register(self, user: User, request: Optional[Request] = None) -> None:
+    async def on_after_register(self, user: User, request: Request | None = None) -> None:
         """Called after user registration."""
         print(f"User {user.id} has registered.")
         # TODO: Send welcome email if email service is configured
 
     async def on_after_forgot_password(
-        self, user: User, token: str, request: Optional[Request] = None
+        self, user: User, token: str, request: Request | None = None
     ) -> None:
         """Called after forgot password request."""
         print(f"User {user.id} has requested password reset.")
@@ -31,7 +30,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # reset_url = f"{auth_config.reset_password_url}?token={token}"
 
     async def on_after_request_verify(
-        self, user: User, token: str, request: Optional[Request] = None
+        self, user: User, token: str, request: Request | None = None
     ) -> None:
         """Called after email verification request."""
         print(f"User {user.id} has requested email verification.")
@@ -42,7 +41,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 async def get_user_db():
     """Get user database adapter."""
     from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
-    from sqlalchemy.ext.asyncio import AsyncSession
 
     async with async_session_maker() as session:
         yield SQLAlchemyUserDatabase(session, User)

@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
+from agents.api.schemas import RunInfo, RunStatus
 from agents.cli import get_adapter
 from agents.core.engine import PARSE_ERROR_KEY, ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
@@ -14,7 +15,6 @@ from agents.core.prompt import PromptTemplate
 from agents.utils.config import DEFAULT_MAX_TOKENS, JobConfig, load_config
 from agents.utils.incremental_writer import IncrementalWriter
 from agents.utils.progress import ProgressTracker
-from agents.api.schemas import RunInfo, RunStatus
 
 
 @dataclass
@@ -93,19 +93,25 @@ class JobManager:
             )
             self.jobs[job_id] = job
 
-    def _build_job(self, config: JobConfig, api_key: str, input_file: str, output_file: str,
-                   prompt_override: str | None = None,
-                   model_override: str | None = None,
-                   base_url: str | None = None,
-                   mode_override: str | None = None,
-                   batch_size_override: int | None = None,
-                   max_tokens_override: int | None = None,
-                   include_raw: bool = False,
-                   no_post_process: bool = False,
-                   no_merge: bool = False,
-                   checkin_interval: int | None = None,
-                   job_id: str | None = None) -> Job:
-        job_id = job_id or f"job_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    def _build_job(
+        self,
+        config: JobConfig,
+        api_key: str,
+        input_file: str,
+        output_file: str,
+        prompt_override: str | None = None,
+        model_override: str | None = None,
+        base_url: str | None = None,
+        mode_override: str | None = None,
+        batch_size_override: int | None = None,
+        max_tokens_override: int | None = None,
+        include_raw: bool = False,
+        no_post_process: bool = False,
+        no_merge: bool = False,
+        checkin_interval: int | None = None,
+        job_id: str | None = None,
+    ) -> Job:
+        job_id = job_id or f"job_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
         llm = config.llm
         proc = config.processing
         prompt = prompt_override or config.prompt
@@ -134,21 +140,24 @@ class JobManager:
         )
         return job
 
-    def start_job(self, *,
-                  input_file: str,
-                  output_file: str,
-                  prompt: str | None,
-                  config_path: str | None,
-                  model: str | None,
-                  api_key: str,
-                  base_url: str | None,
-                  mode: str | None,
-                  batch_size: int | None,
-                  max_tokens: int | None,
-                  include_raw: bool,
-                  no_post_process: bool,
-                  no_merge: bool,
-                  checkin_interval: int | None) -> Job:
+    def start_job(
+        self,
+        *,
+        input_file: str,
+        output_file: str,
+        prompt: str | None,
+        config_path: str | None,
+        model: str | None,
+        api_key: str,
+        base_url: str | None,
+        mode: str | None,
+        batch_size: int | None,
+        max_tokens: int | None,
+        include_raw: bool,
+        no_post_process: bool,
+        no_merge: bool,
+        checkin_interval: int | None,
+    ) -> Job:
         """Start a new processing job in the background."""
         if config_path:
             cfg = load_config(config_path)
@@ -156,7 +165,9 @@ class JobManager:
             # Build minimal config from provided fields
             cfg = JobConfig(
                 llm=config_llm(api_key),
-                processing=config_processing(mode or "sequential", batch_size or 10, checkin_interval),
+                processing=config_processing(
+                    mode or "sequential", batch_size or 10, checkin_interval
+                ),
                 prompt=prompt or "",
             )
         if not prompt and not cfg.prompt:
@@ -195,8 +206,17 @@ class JobManager:
             raise ValueError("API key required to resume job")
 
         cfg = JobConfig(
-            llm=config_llm(api_key_final, model=metadata.get("model"), base_url=metadata.get("base_url"), max_tokens=metadata.get("max_tokens", DEFAULT_MAX_TOKENS)),
-            processing=config_processing(metadata.get("mode", "sequential"), metadata.get("batch_size", 10), checkin_interval or metadata.get("checkin_interval")),
+            llm=config_llm(
+                api_key_final,
+                model=metadata.get("model"),
+                base_url=metadata.get("base_url"),
+                max_tokens=metadata.get("max_tokens", DEFAULT_MAX_TOKENS),
+            ),
+            processing=config_processing(
+                metadata.get("mode", "sequential"),
+                metadata.get("batch_size", 10),
+                checkin_interval or metadata.get("checkin_interval"),
+            ),
             prompt=metadata.get("prompt", ""),
         )
         job = self._build_job(
@@ -217,7 +237,9 @@ class JobManager:
             job_id=job_id,
         )
         job.metadata = metadata
-        thread = threading.Thread(target=self._resume_job, args=(job, tracker, api_key_final), daemon=True)
+        thread = threading.Thread(
+            target=self._resume_job, args=(job, tracker, api_key_final), daemon=True
+        )
         job.thread = thread
         job.status = RunStatus.running
         with self.lock:
@@ -269,7 +291,7 @@ class JobManager:
 
     def _run_job(self, job: Job) -> None:
         """Internal worker to process a new job."""
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
         try:
             adapter = get_adapter(job.input_file, job.output_file)
             units = list(adapter.read_units())
@@ -288,9 +310,16 @@ class JobManager:
             job.tracker = tracker
             job.writer = writer
 
-            processing_mode = ProcessingMode.SEQUENTIAL if job.mode == "sequential" else ProcessingMode.ASYNC
+            processing_mode = (
+                ProcessingMode.SEQUENTIAL if job.mode == "sequential" else ProcessingMode.ASYNC
+            )
             engine = ProcessingEngine(
-                LLMClient(api_key=job.api_key, model=job.model, base_url=job.base_url, max_tokens=job.max_tokens),
+                LLMClient(
+                    api_key=job.api_key,
+                    model=job.model,
+                    base_url=job.base_url,
+                    max_tokens=job.max_tokens,
+                ),
                 PromptTemplate(job.prompt),
                 mode=processing_mode,
                 batch_size=job.batch_size,
@@ -332,10 +361,10 @@ class JobManager:
             job.status = RunStatus.failed
             job.error = str(exc)
         finally:
-            job.finished_at = datetime.now(timezone.utc)
+            job.finished_at = datetime.now(UTC)
 
     def _resume_job(self, job: Job, tracker: ProgressTracker, api_key: str) -> None:
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
         try:
             metadata = tracker.metadata
             adapter = get_adapter(metadata["input_file"], metadata["output_file"])
@@ -350,9 +379,18 @@ class JobManager:
             job.processed = len(completed_indices)
             job.failed = tracker.failed
 
-            processing_mode = ProcessingMode.SEQUENTIAL if metadata.get("mode") == "sequential" else ProcessingMode.ASYNC
+            processing_mode = (
+                ProcessingMode.SEQUENTIAL
+                if metadata.get("mode") == "sequential"
+                else ProcessingMode.ASYNC
+            )
             engine = ProcessingEngine(
-                LLMClient(api_key=api_key, model=metadata.get("model"), base_url=metadata.get("base_url"), max_tokens=metadata.get("max_tokens", DEFAULT_MAX_TOKENS)),
+                LLMClient(
+                    api_key=api_key,
+                    model=metadata.get("model"),
+                    base_url=metadata.get("base_url"),
+                    max_tokens=metadata.get("max_tokens", DEFAULT_MAX_TOKENS),
+                ),
                 PromptTemplate(metadata.get("prompt", "")),
                 mode=processing_mode,
                 batch_size=metadata.get("batch_size", 10),
@@ -364,9 +402,7 @@ class JobManager:
             processed_count = 0
             for result in engine.process(remaining_units):
                 writer.write_result(result)
-                if "error" in result:
-                    tracker.increment_failed()
-                elif PARSE_ERROR_KEY in result:
+                if "error" in result or PARSE_ERROR_KEY in result:
                     tracker.increment_failed()
                 tracker.update(1)
                 processed_count += 1
@@ -387,9 +423,9 @@ class JobManager:
             job.status = RunStatus.failed
             job.error = str(exc)
         finally:
-            job.finished_at = datetime.now(timezone.utc)
+            job.finished_at = datetime.now(UTC)
 
-    def _job_metadata(self, job: Job) -> Dict[str, Any]:
+    def _job_metadata(self, job: Job) -> dict[str, Any]:
         return {
             "input_file": job.input_file,
             "output_file": job.output_file,
@@ -406,10 +442,20 @@ class JobManager:
         }
 
 
-def config_llm(api_key: str, model: str | None = None, base_url: str | None = None, max_tokens: int | None = None):
+def config_llm(
+    api_key: str,
+    model: str | None = None,
+    base_url: str | None = None,
+    max_tokens: int | None = None,
+):
     from agents.utils.config import LLMConfig
 
-    return LLMConfig(api_key=api_key, model=model or "gpt-4o-mini", base_url=base_url, max_tokens=max_tokens or DEFAULT_MAX_TOKENS)
+    return LLMConfig(
+        api_key=api_key,
+        model=model or "gpt-4o-mini",
+        base_url=base_url,
+        max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
+    )
 
 
 def config_processing(mode: str, batch_size: int, checkin_interval: int | None):

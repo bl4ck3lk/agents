@@ -23,7 +23,7 @@ class APIKeyEncryption:
             else:
                 # Generate a new key for development (not recommended for production)
                 key = Fernet.generate_key()
-                print(f"WARNING: Generated new encryption key. Set ENCRYPTION_KEY env var.")
+                print("WARNING: Generated new encryption key. Set ENCRYPTION_KEY env var.")
                 print(f"ENCRYPTION_KEY={key.decode()}")
 
         # Fernet requires URL-safe base64 encoded 32-byte key

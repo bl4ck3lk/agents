@@ -113,7 +113,9 @@ def test_async_processing_with_error_handling(mock_async_llm_client: Mock) -> No
         await asyncio.sleep(0.01)
         return make_llm_response(prompt)
 
-    mock_async_llm_client.complete_with_usage_async = AsyncMock(side_effect=async_complete_with_errors)
+    mock_async_llm_client.complete_with_usage_async = AsyncMock(
+        side_effect=async_complete_with_errors
+    )
 
     template = PromptTemplate("Process: {text}")
     engine = ProcessingEngine(

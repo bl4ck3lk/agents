@@ -1,6 +1,6 @@
 """Test model validation."""
 
-from agents.utils.model_validation import validate_model, get_allowed_models
+from agents.utils.model_validation import get_allowed_models, validate_model
 
 
 def test_allowed_model_passes():

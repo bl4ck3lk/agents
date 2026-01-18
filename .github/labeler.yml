@@ -1,0 +1,63 @@
+# PR Labeler Configuration
+# https://github.com/actions/labeler
+
+"api":
+  - "agents/api/**"
+
+"cli":
+  - "agents/cli/**"
+
+"core":
+  - "agents/core/**"
+
+"adapters":
+  - "agents/adapters/**"
+
+"processing":
+  - "agents/processing_service/**"
+
+"database":
+  - "alembic/**"
+  - "**/models.py"
+  - "**/schemas.py"
+
+"frontend":
+  - "web/**"
+  - "*.css"
+  - "*.html"
+
+"tests":
+  - "tests/**"
+  - "test_*.py"
+  - "**/test_*.py"
+
+"documentation":
+  - "docs/**"
+  - "README.md"
+  - "CONTRIBUTING.md"
+  - "**/*.md"
+
+"dependencies":
+  - "pyproject.toml"
+  - "requirements.txt"
+  - "package.json"
+  - "package-lock.json"
+  - "yarn.lock"
+
+"docker":
+  - "Dockerfile"
+  - "docker-compose*.yml"
+  - ".dockerignore"
+
+"ci/cd":
+  - ".github/**"
+  - "Makefile"
+
+"security":
+  - "**/security*.py"
+  - "**/auth*.py"
+  - "**/encryption*.py"
+
+"types":
+  - "**/*.pyi"
+  - "py.typed"

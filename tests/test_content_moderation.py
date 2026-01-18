@@ -44,7 +44,7 @@ def test_normal_content_allowed():
 
     assert is_safe
     assert reason is None
-    print(f"✓ Normal content allowed")
+    print("✓ Normal content allowed")
 
 
 def test_moderation_disabled():
@@ -56,7 +56,7 @@ def test_moderation_disabled():
 
     assert is_safe  # Should be allowed when disabled
     assert reason is None
-    print(f"✓ Moderation disabled - harmful content allowed")
+    print("✓ Moderation disabled - harmful content allowed")
 
 
 def test_moderate_dict():
@@ -73,7 +73,7 @@ def test_moderate_dict():
     assert "_moderation_blocked" not in result["safe_field"]
     assert "_moderation_blocked" in result["harmful_field"]
     assert "_moderation_blocked" in result["nested"]["another_field"]
-    print(f"✓ Dictionary moderation works correctly")
+    print("✓ Dictionary moderation works correctly")
 
 
 if __name__ == "__main__":

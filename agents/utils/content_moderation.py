@@ -98,9 +98,9 @@ class ContentModerator:
         Returns:
             Dictionary with moderation errors added if found.
         """
-        result = data.copy()
+        result = dict(data)
 
-        for key, value in result.items():
+        for key, value in data.items():
             if isinstance(value, str):
                 is_safe, reason = self.moderate(value)
                 if not is_safe:
@@ -110,5 +110,7 @@ class ContentModerator:
                         "_moderation_reason": reason,
                     }
                     logger.warning(f"Blocked content in field '{key}': {reason}")
+            elif isinstance(value, dict):
+                result[key] = self.moderate_dict(value)
 
         return result

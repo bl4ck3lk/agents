@@ -1,8 +1,9 @@
 """E2E tests for web application file processing flow."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock
+
+import pytest
 
 from agents.api.utils.file_parser import parse_file_metadata
 
@@ -94,9 +95,7 @@ class TestFileMetadataDetection:
             side_effect=lambda key, path: Path(path).write_text(content)
         )
 
-        metadata = await parse_file_metadata(
-            "uploads/user/test.csv", mock_storage, preview_limit=3
-        )
+        metadata = await parse_file_metadata("uploads/user/test.csv", mock_storage, preview_limit=3)
 
         assert metadata.row_count == 10
         assert len(metadata.preview_rows) == 3
@@ -161,8 +160,9 @@ class TestTaskQClient:
     @pytest.mark.asyncio
     async def test_enqueue_task_queue_not_found(self):
         """Test error when queue doesn't exist."""
-        from agents.taskq.client import enqueue_task
         from unittest.mock import MagicMock
+
+        from agents.taskq.client import enqueue_task
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -175,9 +175,10 @@ class TestTaskQClient:
     @pytest.mark.asyncio
     async def test_enqueue_task_success(self):
         """Test successful task enqueueing."""
-        from agents.taskq.client import enqueue_task
-        from unittest.mock import MagicMock
         import uuid
+        from unittest.mock import MagicMock
+
+        from agents.taskq.client import enqueue_task
 
         mock_session = AsyncMock()
 

@@ -212,9 +212,7 @@ class ProcessingEngine:
         for attempt in range(attempts):
             try:
                 prompt = self.prompt_template.render(unit)
-                llm_response: LLMResponse = await self.llm_client.complete_with_usage_async(
-                    prompt
-                )
+                llm_response: LLMResponse = await self.llm_client.complete_with_usage_async(prompt)
                 result = llm_response.content
 
                 # Accumulate token usage across retries

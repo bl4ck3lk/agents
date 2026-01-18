@@ -3,7 +3,6 @@
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
 from click.testing import CliRunner
 
 from agents.cli import cli
@@ -109,7 +108,9 @@ def test_process_circuit_breaker_inspect_then_abort(tmp_path: Path) -> None:
 
     with patch("agents.cli.LLMClient") as mock_client_class:
         mock_client = Mock()
-        mock_client.complete_with_usage.side_effect = FatalLLMError(Exception("Detailed error message"))
+        mock_client.complete_with_usage.side_effect = FatalLLMError(
+            Exception("Detailed error message")
+        )
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(

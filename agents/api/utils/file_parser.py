@@ -166,10 +166,12 @@ def _parse_text(file_path: str, preview_limit: int) -> FileMetadata:
             row_count += 1
 
             if len(preview_rows) < preview_limit:
-                preview_rows.append({
-                    "line_number": line_number,
-                    "content": content,
-                })
+                preview_rows.append(
+                    {
+                        "line_number": line_number,
+                        "content": content,
+                    }
+                )
 
     # Text files always have these columns
     columns = ["line_number", "content"]

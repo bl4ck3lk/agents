@@ -81,14 +81,14 @@ def test_csv_adapter_write(tmp_path: Path) -> None:
 
     adapter.write_results(results)
 
-    # Verify output
+    # Verify output - CSV adapter preserves original schema, so only id and text are written
     with open(output_file) as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
     assert len(rows) == 2
-    assert rows[0] == {"id": "1", "text": "hello", "result": "hola"}
-    assert rows[1] == {"id": "2", "text": "world", "result": "mundo"}
+    assert rows[0] == {"id": "1", "text": "hello"}
+    assert rows[1] == {"id": "2", "text": "world"}
 
 
 def test_csv_adapter_get_schema(tmp_path: Path) -> None:

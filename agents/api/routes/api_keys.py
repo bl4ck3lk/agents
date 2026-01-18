@@ -1,6 +1,5 @@
 """API key management routes."""
 
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +20,7 @@ class APIKeyCreate(BaseModel):
 
     provider: str  # 'openai', 'anthropic', etc.
     api_key: str  # The actual key to encrypt
-    name: Optional[str] = None  # User-friendly label
+    name: str | None = None  # User-friendly label
 
 
 class APIKeyResponse(BaseModel):
@@ -29,7 +28,7 @@ class APIKeyResponse(BaseModel):
 
     id: str
     provider: str
-    name: Optional[str]
+    name: str | None
     masked_key: str
     created_at: str
 
@@ -138,16 +137,19 @@ async def get_decrypted_api_key(
     user_id: str,
     provider: str,
     session: AsyncSession,
-) -> Optional[str]:
+) -> str | None:
     """Get decrypted API key for a user and provider.
 
     This is an internal utility function, not an endpoint.
     """
     result = await session.execute(
-        select(APIKey).where(
+        select(APIKey)
+        .where(
             APIKey.user_id == user_id,
             APIKey.provider == provider,
-        ).order_by(APIKey.created_at.desc()).limit(1)
+        )
+        .order_by(APIKey.created_at.desc())
+        .limit(1)
     )
     api_key = result.scalar_one_or_none()
 
