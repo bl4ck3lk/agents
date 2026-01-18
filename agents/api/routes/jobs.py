@@ -174,7 +174,8 @@ async def create_job(
 
     # Check usage limits if enabled
     if check_usage_limits_enabled():
-        usage_tracker = get_usage_tracker()
+        # Note: usage_tracker retrieved here for future quota enforcement features
+        _usage_tracker = get_usage_tracker()  # noqa: F841 - Intended for future use
         from sqlalchemy import func
 
         result = await session.execute(
@@ -548,7 +549,7 @@ async def delete_job(
     try:
         results_key = storage.generate_results_key(job_id)
         await storage.delete_file(results_key)
-    except Exception as exc:
+    except Exception:
         # Best-effort cleanup: failures deleting S3 results should not block job deletion
         logging.exception(
             "Failed to delete results file from storage for job_id=%s, key=%s",
@@ -561,7 +562,7 @@ async def delete_job(
         try:
             _, output_key = storage.parse_s3_url(job.output_file_url)
             await storage.delete_file(output_key)
-        except Exception as exc:
+        except Exception:
             # Best-effort cleanup: failures deleting S3 output should not block job deletion
             logging.exception(
                 "Failed to delete output file from storage for job_id=%s, key=%s",
