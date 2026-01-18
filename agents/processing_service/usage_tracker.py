@@ -44,7 +44,11 @@ class UsageTracker:
                     return pricing
 
             # No match found
-            logger.warning(f"No pricing found for model={model}, provider={provider}")
+            logger.warning(
+                "No pricing found for model=%s, provider=%s",
+                model,
+                provider,
+            )
             return None
 
     def calculate_cost(
