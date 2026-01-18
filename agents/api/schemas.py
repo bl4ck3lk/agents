@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,23 +14,23 @@ class RunMode(str, Enum):
 class RunCreateRequest(BaseModel):
     input_file: str
     output_file: str
-    prompt: Optional[str] = None
-    config_path: Optional[str] = None
-    model: Optional[str] = None
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    mode: Optional[RunMode] = None
-    batch_size: Optional[int] = None
-    max_tokens: Optional[int] = None
+    prompt: str | None = None
+    config_path: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    mode: RunMode | None = None
+    batch_size: int | None = None
+    max_tokens: int | None = None
     include_raw: bool = False
     no_post_process: bool = False
     no_merge: bool = False
-    checkin_interval: Optional[int] = None
+    checkin_interval: int | None = None
 
 
 class RunResumeRequest(BaseModel):
-    api_key: Optional[str] = None
-    checkin_interval: Optional[int] = None
+    api_key: str | None = None
+    checkin_interval: int | None = None
 
 
 class RunStatus(str, Enum):
@@ -86,10 +86,10 @@ class ResultsResponse(BaseModel):
 class PromptTestRequest(BaseModel):
     prompt: str
     variables: dict[str, Any] = Field(default_factory=dict)
-    model: Optional[str] = None
+    model: str | None = None
     api_key: str
-    base_url: Optional[str] = None
-    max_tokens: Optional[int] = None
+    base_url: str | None = None
+    max_tokens: int | None = None
 
 
 class PromptTestResponse(BaseModel):
@@ -101,8 +101,8 @@ class CompareRequest(BaseModel):
     sample: dict[str, Any]
     models: list[str]
     api_key: str
-    base_url: Optional[str] = None
-    max_tokens: Optional[int] = None
+    base_url: str | None = None
+    max_tokens: int | None = None
 
 
 class CompareResult(BaseModel):

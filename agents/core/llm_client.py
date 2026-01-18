@@ -4,8 +4,6 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from agents.utils.config import DEFAULT_MAX_RETRIES, DEFAULT_MAX_TOKENS
-
 from openai import (
     APIError,
     APITimeoutError,
@@ -24,6 +22,8 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential_jitter,
 )
+
+from agents.utils.config import DEFAULT_MAX_RETRIES, DEFAULT_MAX_TOKENS
 
 # Fatal errors - don't retry, surface immediately
 FATAL_ERRORS = (AuthenticationError, PermissionDeniedError, BadRequestError)

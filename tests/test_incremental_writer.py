@@ -1,6 +1,5 @@
 """Tests for incremental writer."""
 
-import json
 import tempfile
 from pathlib import Path
 

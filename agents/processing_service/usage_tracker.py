@@ -16,9 +16,7 @@ logger = logging.getLogger(__name__)
 class UsageTracker:
     """Tracks token usage and calculates costs for jobs."""
 
-    async def get_model_pricing(
-        self, model: str, provider: str
-    ) -> ModelPricing | None:
+    async def get_model_pricing(self, model: str, provider: str) -> ModelPricing | None:
         """Get pricing for a model using pattern matching.
 
         Args:
@@ -46,9 +44,7 @@ class UsageTracker:
                     return pricing
 
             # No match found
-            logger.warning(
-                f"No pricing found for model={model}, provider={provider}"
-            )
+            logger.warning(f"No pricing found for model={model}, provider={provider}")
             return None
 
     def calculate_cost(
@@ -71,12 +67,8 @@ class UsageTracker:
             return Decimal("0"), Decimal("0"), Decimal("0")
 
         # Calculate raw cost
-        input_cost = (
-            Decimal(tokens_input) * pricing.input_cost_per_million / Decimal("1000000")
-        )
-        output_cost = (
-            Decimal(tokens_output) * pricing.output_cost_per_million / Decimal("1000000")
-        )
+        input_cost = Decimal(tokens_input) * pricing.input_cost_per_million / Decimal("1000000")
+        output_cost = Decimal(tokens_output) * pricing.output_cost_per_million / Decimal("1000000")
         raw_cost = input_cost + output_cost
 
         # Apply markup
@@ -108,9 +100,7 @@ class UsageTracker:
         """
         # Get pricing and calculate cost
         pricing = await self.get_model_pricing(model, provider)
-        raw_cost, markup, total_cost = self.calculate_cost(
-            tokens_input, tokens_output, pricing
-        )
+        raw_cost, markup, total_cost = self.calculate_cost(tokens_input, tokens_output, pricing)
 
         # Insert usage record
         async with async_session_maker() as session:

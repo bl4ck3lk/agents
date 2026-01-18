@@ -1,7 +1,6 @@
 """Admin routes for platform key and pricing management."""
 
 from decimal import Decimal
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,17 +33,17 @@ class PlatformKeyCreate(BaseModel):
 
     provider: str
     api_key: str  # Will be encrypted before storage
-    name: Optional[str] = None
-    base_url: Optional[str] = None
+    name: str | None = None
+    base_url: str | None = None
 
 
 class PlatformKeyUpdate(BaseModel):
     """Request to update a platform API key."""
 
-    api_key: Optional[str] = None
-    name: Optional[str] = None
-    base_url: Optional[str] = None
-    is_active: Optional[bool] = None
+    api_key: str | None = None
+    name: str | None = None
+    base_url: str | None = None
+    is_active: bool | None = None
 
 
 class PlatformKeyResponse(BaseModel):
@@ -52,8 +51,8 @@ class PlatformKeyResponse(BaseModel):
 
     id: str
     provider: str
-    name: Optional[str]
-    base_url: Optional[str]
+    name: str | None
+    base_url: str | None
     is_active: bool
     created_at: str
     updated_at: str
@@ -126,9 +125,7 @@ async def update_platform_key(
     session: AsyncSession = Depends(get_async_session),
 ) -> PlatformKeyResponse:
     """Update a platform API key."""
-    result = await session.execute(
-        select(PlatformAPIKey).where(PlatformAPIKey.id == key_id)
-    )
+    result = await session.execute(select(PlatformAPIKey).where(PlatformAPIKey.id == key_id))
     key = result.scalar_one_or_none()
 
     if not key:
@@ -165,9 +162,7 @@ async def delete_platform_key(
     session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     """Delete a platform API key."""
-    result = await session.execute(
-        select(PlatformAPIKey).where(PlatformAPIKey.id == key_id)
-    )
+    result = await session.execute(select(PlatformAPIKey).where(PlatformAPIKey.id == key_id))
     key = result.scalar_one_or_none()
 
     if not key:
@@ -197,11 +192,11 @@ class PricingCreate(BaseModel):
 class PricingUpdate(BaseModel):
     """Request to update model pricing."""
 
-    model_pattern: Optional[str] = None
-    provider: Optional[str] = None
-    input_cost_per_million: Optional[Decimal] = None
-    output_cost_per_million: Optional[Decimal] = None
-    markup_percentage: Optional[Decimal] = None
+    model_pattern: str | None = None
+    provider: str | None = None
+    input_cost_per_million: Decimal | None = None
+    output_cost_per_million: Decimal | None = None
+    markup_percentage: Decimal | None = None
 
 
 class PricingResponse(BaseModel):
@@ -214,7 +209,7 @@ class PricingResponse(BaseModel):
     output_cost_per_million: Decimal
     markup_percentage: Decimal
     effective_from: str
-    effective_to: Optional[str]
+    effective_to: str | None
     created_at: str
 
     class Config:
@@ -228,9 +223,7 @@ async def list_model_pricing(
     session: AsyncSession = Depends(get_async_session),
 ) -> list[PricingResponse]:
     """List all model pricing entries."""
-    query = select(ModelPricing).order_by(
-        ModelPricing.provider, ModelPricing.model_pattern
-    )
+    query = select(ModelPricing).order_by(ModelPricing.provider, ModelPricing.model_pattern)
     if active_only:
         query = query.where(ModelPricing.effective_to.is_(None))
 
@@ -293,9 +286,7 @@ async def update_model_pricing(
     session: AsyncSession = Depends(get_async_session),
 ) -> PricingResponse:
     """Update model pricing."""
-    result = await session.execute(
-        select(ModelPricing).where(ModelPricing.id == pricing_id)
-    )
+    result = await session.execute(select(ModelPricing).where(ModelPricing.id == pricing_id))
     pricing = result.scalar_one_or_none()
 
     if not pricing:
@@ -335,9 +326,7 @@ async def delete_model_pricing(
     session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     """Delete model pricing entry."""
-    result = await session.execute(
-        select(ModelPricing).where(ModelPricing.id == pricing_id)
-    )
+    result = await session.execute(select(ModelPricing).where(ModelPricing.id == pricing_id))
     pricing = result.scalar_one_or_none()
 
     if not pricing:
@@ -357,8 +346,8 @@ async def delete_model_pricing(
 class UserPlatformAccessUpdate(BaseModel):
     """Request to update user platform access."""
 
-    can_use_platform_key: Optional[bool] = None
-    monthly_usage_limit_usd: Optional[Decimal] = None
+    can_use_platform_key: bool | None = None
+    monthly_usage_limit_usd: Decimal | None = None
 
 
 class UserPlatformAccessResponse(BaseModel):
@@ -367,12 +356,10 @@ class UserPlatformAccessResponse(BaseModel):
     id: str
     email: str
     can_use_platform_key: bool
-    monthly_usage_limit_usd: Optional[Decimal]
+    monthly_usage_limit_usd: Decimal | None
 
 
-@router.patch(
-    "/users/{user_id}/platform-access", response_model=UserPlatformAccessResponse
-)
+@router.patch("/users/{user_id}/platform-access", response_model=UserPlatformAccessResponse)
 async def update_user_platform_access(
     user_id: str,
     body: UserPlatformAccessUpdate,
@@ -428,9 +415,7 @@ async def get_setting(
     session: AsyncSession = Depends(get_async_session),
 ) -> SettingResponse:
     """Get a system setting by key."""
-    result = await session.execute(
-        select(SystemSettings).where(SystemSettings.key == key)
-    )
+    result = await session.execute(select(SystemSettings).where(SystemSettings.key == key))
     setting = result.scalar_one_or_none()
 
     if not setting:
@@ -451,9 +436,7 @@ async def update_setting(
     session: AsyncSession = Depends(get_async_session),
 ) -> SettingResponse:
     """Update or create a system setting."""
-    result = await session.execute(
-        select(SystemSettings).where(SystemSettings.key == key)
-    )
+    result = await session.execute(select(SystemSettings).where(SystemSettings.key == key))
     setting = result.scalar_one_or_none()
 
     if setting:
@@ -478,9 +461,7 @@ async def list_settings(
     session: AsyncSession = Depends(get_async_session),
 ) -> list[SettingResponse]:
     """List all system settings."""
-    result = await session.execute(
-        select(SystemSettings).order_by(SystemSettings.key)
-    )
+    result = await session.execute(select(SystemSettings).order_by(SystemSettings.key))
     settings = result.scalars().all()
 
     return [

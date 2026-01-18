@@ -1,6 +1,7 @@
 """Test SQL injection protection in db_helpers."""
 
 import asyncio
+
 import pytest
 
 from agents.processing_service.db_helpers import update_job_status

@@ -30,7 +30,7 @@ class AuthConfig:
     reset_password_url: str = "http://localhost:3000/auth/reset-password"
 
     @classmethod
-    def from_env(cls) -> "AuthConfig":
+    def from_env(cls) -> AuthConfig:
         """Create config from environment variables."""
         return cls(
             secret_key=os.getenv("SECRET_KEY", secrets.token_urlsafe(32)),
@@ -41,9 +41,7 @@ class AuthConfig:
             resend_api_key=os.getenv("RESEND_API_KEY"),
             email_from=os.getenv("EMAIL_FROM", "noreply@agents.app"),
             frontend_url=os.getenv("FRONTEND_URL", "http://localhost:3000"),
-            verify_email_url=os.getenv(
-                "VERIFY_EMAIL_URL", "http://localhost:3000/auth/verify"
-            ),
+            verify_email_url=os.getenv("VERIFY_EMAIL_URL", "http://localhost:3000/auth/verify"),
             reset_password_url=os.getenv(
                 "RESET_PASSWORD_URL", "http://localhost:3000/auth/reset-password"
             ),

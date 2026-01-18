@@ -127,7 +127,9 @@ def get_adapter(input_path: str, output_path: str) -> DataAdapter:
     help="Processing mode",
 )
 @click.option("--batch-size", type=int, help="Batch size for async mode")
-@click.option("--max-tokens", type=int, help=f"Maximum tokens in LLM response (default: {DEFAULT_MAX_TOKENS})")
+@click.option(
+    "--max-tokens", type=int, help=f"Maximum tokens in LLM response (default: {DEFAULT_MAX_TOKENS})"
+)
 @click.option(
     "--no-post-process",
     is_flag=True,

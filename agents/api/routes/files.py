@@ -1,7 +1,7 @@
 """File upload and management routes."""
 
 import os
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -32,7 +32,7 @@ class UploadRequest(BaseModel):
 
     filename: str
     content_type: str = "application/octet-stream"
-    size_bytes: Optional[int] = None  # For validation
+    size_bytes: int | None = None  # For validation
 
 
 class UploadResponse(BaseModel):
@@ -57,14 +57,14 @@ class FileInfoResponse(BaseModel):
 
     file_id: str
     key: str
-    size: Optional[int]
-    content_type: Optional[str]
+    size: int | None
+    content_type: str | None
     download_url: str
     # Metadata fields (populated after confirm)
-    row_count: Optional[int] = None
-    columns: Optional[list[str]] = None
-    preview_rows: Optional[list[dict[str, Any]]] = None
-    file_type: Optional[str] = None
+    row_count: int | None = None
+    columns: list[str] | None = None
+    preview_rows: list[dict[str, Any]] | None = None
+    file_type: str | None = None
 
 
 # Allowed file extensions
@@ -172,10 +172,14 @@ async def get_file_download_url(
 
     # Verify the key belongs to this user (uploads or results)
     user_prefix = f"uploads/{user.id}/"
-    results_prefix = f"results/"
-    outputs_prefix = f"outputs/"
+    results_prefix = "results/"
+    outputs_prefix = "outputs/"
 
-    if not (key.startswith(user_prefix) or key.startswith(results_prefix) or key.startswith(outputs_prefix)):
+    if not (
+        key.startswith(user_prefix)
+        or key.startswith(results_prefix)
+        or key.startswith(outputs_prefix)
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if file exists

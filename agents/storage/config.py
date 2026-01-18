@@ -16,7 +16,7 @@ class StorageConfig:
     presigned_url_expiry: int  # seconds
 
     @classmethod
-    def from_env(cls) -> "StorageConfig":
+    def from_env(cls) -> StorageConfig:
         """Create config from environment variables."""
         return cls(
             endpoint_url=os.getenv("S3_ENDPOINT_URL"),  # None for AWS S3

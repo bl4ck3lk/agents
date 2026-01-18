@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
@@ -22,25 +22,23 @@ class User(SQLAlchemyBaseUserTableUUID, Base, TimestampMixin):
     __tablename__ = "users"
 
     # Additional fields beyond fastapi-users defaults
-    name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    avatar_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Platform key access control
     can_use_platform_key: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
-    monthly_usage_limit_usd: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(10, 2), nullable=True
-    )
+    monthly_usage_limit_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     # Relationships
-    api_keys: Mapped[list["APIKey"]] = relationship(
+    api_keys: Mapped[list[APIKey]] = relationship(
         "APIKey", back_populates="user", cascade="all, delete-orphan"
     )
-    web_jobs: Mapped[list["WebJob"]] = relationship(
+    web_jobs: Mapped[list[WebJob]] = relationship(
         "WebJob", back_populates="user", cascade="all, delete-orphan"
     )
-    usage_records: Mapped[list["Usage"]] = relationship(
+    usage_records: Mapped[list[Usage]] = relationship(
         "Usage", back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -61,18 +59,12 @@ class APIKey(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    provider: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # 'openai', 'anthropic', etc.
-    encrypted_key: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Fernet-encrypted
-    name: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True
-    )  # User-friendly label
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)  # 'openai', 'anthropic', etc.
+    encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet-encrypted
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # User-friendly label
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="api_keys")
+    user: Mapped[User] = relationship("User", back_populates="api_keys")
 
 
 class WebJob(Base):
@@ -80,30 +72,28 @@ class WebJob(Base):
 
     __tablename__ = "web_jobs"
 
-    id: Mapped[str] = mapped_column(
-        String(50), primary_key=True
-    )  # job_20231119_143022
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)  # job_20231119_143022
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    taskq_task_id: Mapped[Optional[str]] = mapped_column(
+    taskq_task_id: Mapped[str | None] = mapped_column(
         UUID(as_uuid=False), nullable=True, index=True
     )  # FK to TaskQ tasks table
 
     # File URLs
     input_file_url: Mapped[str] = mapped_column(Text, nullable=False)
-    output_file_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    output_file_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Job configuration
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
-    config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Progress tracking (denormalized from TaskQ for quick access)
-    total_units: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
     processed_units: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failed_units: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(
@@ -116,19 +106,15 @@ class WebJob(Base):
         server_default=func.now(),
         nullable=False,
     )
-    started_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Error tracking
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="web_jobs")
-    usage_records: Mapped[list["Usage"]] = relationship(
+    user: Mapped[User] = relationship("User", back_populates="web_jobs")
+    usage_records: Mapped[list[Usage]] = relationship(
         "Usage", back_populates="web_job", cascade="all, delete-orphan"
     )
 
@@ -159,13 +145,11 @@ class Usage(Base):
     # Token usage
     tokens_input: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tokens_output: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cost_usd: Mapped[Decimal] = mapped_column(
-        Numeric(10, 6), default=Decimal("0"), nullable=False
-    )
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0"), nullable=False)
 
     # Extended tracking fields
-    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     used_platform_key: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
@@ -184,8 +168,8 @@ class Usage(Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="usage_records")
-    web_job: Mapped["WebJob"] = relationship("WebJob", back_populates="usage_records")
+    user: Mapped[User] = relationship("User", back_populates="usage_records")
+    web_job: Mapped[WebJob] = relationship("WebJob", back_populates="usage_records")
 
 
 class PlatformAPIKey(Base, TimestampMixin):
@@ -201,13 +185,9 @@ class PlatformAPIKey(Base, TimestampMixin):
     provider: Mapped[str] = mapped_column(
         String(50), nullable=False, index=True
     )  # 'openrouter', 'openai', etc.
-    encrypted_key: Mapped[str] = mapped_column(
-        Text, nullable=False
-    )  # Fernet-encrypted
-    name: Mapped[Optional[str]] = mapped_column(
-        String(100), nullable=True
-    )  # Admin-friendly label
-    base_url: Mapped[Optional[str]] = mapped_column(
+    encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)  # Fernet-encrypted
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Admin-friendly label
+    base_url: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )  # e.g., 'https://openrouter.ai/api/v1'
     is_active: Mapped[bool] = mapped_column(
@@ -243,15 +223,9 @@ class ModelPricing(Base):
     model_pattern: Mapped[str] = mapped_column(
         String(100), nullable=False, index=True
     )  # e.g., 'gpt-4o*', 'claude-3*'
-    provider: Mapped[str] = mapped_column(
-        String(50), nullable=False, index=True
-    )
-    input_cost_per_million: Mapped[Decimal] = mapped_column(
-        Numeric(12, 6), nullable=False
-    )
-    output_cost_per_million: Mapped[Decimal] = mapped_column(
-        Numeric(12, 6), nullable=False
-    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    input_cost_per_million: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
+    output_cost_per_million: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
     markup_percentage: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), default=Decimal("20"), server_default="20", nullable=False
     )
@@ -260,7 +234,7 @@ class ModelPricing(Base):
         server_default=func.now(),
         nullable=False,
     )
-    effective_to: Mapped[Optional[datetime]] = mapped_column(
+    effective_to: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )  # NULL = active
     created_at: Mapped[datetime] = mapped_column(

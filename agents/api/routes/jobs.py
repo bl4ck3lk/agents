@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,11 +18,11 @@ from agents.api.routes.api_keys import get_decrypted_api_key
 from agents.api.security import get_encryption
 from agents.db.models import PlatformAPIKey, User, WebJob
 from agents.db.session import get_async_session
+from agents.processing_service.usage_tracker import get_usage_tracker
 from agents.storage import get_storage_client
 from agents.taskq import enqueue_task
 from agents.utils.config_env import get_env_bool
 from agents.utils.model_validation import validate_model
-from agents.processing_service.usage_tracker import get_usage_tracker
 
 
 class UsageLimitsExceeded(HTTPException):
@@ -86,10 +86,10 @@ class JobCreateRequest(BaseModel):
     input_file_key: str  # S3 key from file upload
     prompt: str
     model: str = "gpt-4o-mini"
-    config: Optional[JobConfig] = None
-    api_key_id: Optional[str] = None  # Use stored key
-    api_key: Optional[str] = None  # Or provide directly (BYOK)
-    base_url: Optional[str] = None
+    config: JobConfig | None = None
+    api_key_id: str | None = None  # Use stored key
+    api_key: str | None = None  # Or provide directly (BYOK)
+    base_url: str | None = None
 
     def validate_model_field(self) -> None:
         """Validate that model is allowed."""
@@ -104,17 +104,17 @@ class JobResponse(BaseModel):
     id: str
     status: str
     input_file_url: str
-    output_file_url: Optional[str]
+    output_file_url: str | None
     prompt: str
     model: str
-    config: Optional[dict]
-    total_units: Optional[int]
+    config: dict | None
+    total_units: int | None
     processed_units: int
     failed_units: int
     created_at: str
-    started_at: Optional[str]
-    completed_at: Optional[str]
-    error_message: Optional[str] = None
+    started_at: str | None
+    completed_at: str | None
+    error_message: str | None = None
 
     class Config:
         from_attributes = True
@@ -135,7 +135,7 @@ class JobResultItem(BaseModel):
     index: int
     input: dict
     output: Any
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class JobResultsResponse(BaseModel):
@@ -326,7 +326,7 @@ async def create_job(
 async def list_jobs(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    status: str | None = None,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> JobListResponse:

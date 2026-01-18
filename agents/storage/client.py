@@ -188,9 +188,7 @@ class StorageClient:
     async def list_files(self, prefix: str) -> list[dict[str, Any]]:
         """List files with given prefix."""
         async with self._get_client() as client:
-            response = await client.list_objects_v2(
-                Bucket=self.config.bucket_name, Prefix=prefix
-            )
+            response = await client.list_objects_v2(Bucket=self.config.bucket_name, Prefix=prefix)
             files = []
             for obj in response.get("Contents", []):
                 files.append(

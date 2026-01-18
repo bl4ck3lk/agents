@@ -1,7 +1,6 @@
 """Tests for circuit breaker."""
 
-import pytest
-from agents.core.circuit_breaker import CircuitBreaker, CircuitBreakerTripped
+from agents.core.circuit_breaker import CircuitBreaker
 
 
 def test_circuit_breaker_initial_state() -> None:

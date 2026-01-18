@@ -8,7 +8,20 @@ from pathlib import Path
 from typing import Any
 
 from agents.adapters import get_adapter
+from agents.core.engine import ProcessingEngine
+from agents.core.llm_client import LLMClient
+from agents.core.prompt import PromptTemplate
+from agents.core.engine import ProcessingEngine, ProcessingMode
+from agents.core.llm_client import LLMClient
+from agents.core.prompt import PromptTemplate
+from agents.processing_service.db_helpers import (
+    update_job_progress,
+    update_job_status,
+)
 from agents.processing_service.schemas import ProcessRequest, ProcessResponse
+from agents.processing_service.usage_tracker import get_usage_tracker
+from agents.storage.client import get_storage_client
+from agents.utils.config import DEFAULT_MAX_TOKENS
 from agents.utils.config_env import get_env_bool
 
 logger = logging.getLogger(__name__)
@@ -148,7 +161,7 @@ class BatchProcessor:
             engine = ProcessingEngine(
                 llm_client=llm_client,
                 prompt_template=prompt_template,
-                mode="sequential",  # Force sequential - async mode conflicts with FastAPI's event loop
+                mode=ProcessingMode.SEQUENTIAL,  # Force sequential - async mode conflicts with FastAPI's event loop
                 batch_size=request.config.get("batch_size", 10),
                 post_process=not request.config.get("no_post_process", False),
                 include_raw_result=request.config.get("include_raw", False),

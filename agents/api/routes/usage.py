@@ -3,7 +3,6 @@
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -23,8 +22,8 @@ class UsageRecord(BaseModel):
 
     id: str
     job_id: str
-    model: Optional[str]
-    provider: Optional[str]
+    model: str | None
+    provider: str | None
     tokens_input: int
     tokens_output: int
     cost_usd: Decimal
@@ -81,9 +80,9 @@ class UsageSummary(BaseModel):
 async def list_usage(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    model: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    model: str | None = None,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> UsageListResponse:
@@ -164,9 +163,7 @@ async def get_usage_summary(
             func.sum(Usage.tokens_input).label("total_input"),
             func.sum(Usage.tokens_output).label("total_output"),
             func.count(Usage.id).label("total_jobs"),
-            func.sum(func.cast(Usage.used_platform_key, Integer)).label(
-                "platform_jobs"
-            ),
+            func.sum(func.cast(Usage.used_platform_key, Integer)).label("platform_jobs"),
         ).where(*base_filter)
     )
     totals = totals_result.one()
@@ -238,8 +235,8 @@ async def get_usage_summary(
 
 @router.get("/export")
 async def export_usage(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> StreamingResponse:

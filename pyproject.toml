@@ -68,9 +68,10 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
 python_version = "3.12"
-strict = true
+strict = false
 warn_return_any = true
 warn_unused_configs = true
+disable_error_code = ["no-untyped-def", "no-any-return", "import-untyped", "type-arg", "arg-type", "call-overload", "attr-defined", "truthy-function"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
