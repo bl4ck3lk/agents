@@ -328,7 +328,7 @@ def process(
             try:
                 for result in engine.process(units):
                     writer.write_result(result)  # Write immediately to survive crashes
-                    if "error" in result:
+                    if "_error" in result:
                         error_count += 1
                         tracker.increment_failed()
                     elif "parse_error" in result:
@@ -384,7 +384,7 @@ def process(
                         try:
                             for result in engine.process(remaining):
                                 writer.write_result(result)
-                                if "error" in result:
+                                if "_error" in result:
                                     error_count += 1
                                     tracker.increment_failed()
                                 elif "parse_error" in result:
@@ -582,7 +582,7 @@ def resume(
             try:
                 for result in engine.process(remaining_units):
                     writer.write_result(result)  # Write immediately
-                    if "error" in result:
+                    if "_error" in result:
                         error_count += 1
                         tracker.increment_failed()
                     elif "parse_error" in result:
@@ -642,7 +642,7 @@ def resume(
                         try:
                             for result in engine.process(still_remaining):
                                 writer.write_result(result)
-                                if "error" in result:
+                                if "_error" in result:
                                     error_count += 1
                                     tracker.increment_failed()
                                 elif "parse_error" in result:

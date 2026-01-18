@@ -7,7 +7,15 @@ import pytest
 from click.testing import CliRunner
 
 from agents.cli import cli
-from agents.core.llm_client import FatalLLMError
+from agents.core.llm_client import FatalLLMError, LLMResponse, UsageMetadata
+
+
+def make_success_response(content: str) -> LLMResponse:
+    """Create a success LLMResponse with mock usage data."""
+    return LLMResponse(
+        content=content,
+        usage=UsageMetadata(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+    )
 
 
 def test_process_with_circuit_breaker_trip(tmp_path: Path) -> None:
@@ -22,7 +30,7 @@ def test_process_with_circuit_breaker_trip(tmp_path: Path) -> None:
     with patch("agents.cli.LLMClient") as mock_client_class:
         mock_client = Mock()
         # Fail all requests with fatal error
-        mock_client.complete.side_effect = FatalLLMError(Exception("Invalid API key"))
+        mock_client.complete_with_usage.side_effect = FatalLLMError(Exception("Invalid API key"))
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(
@@ -60,11 +68,11 @@ def test_process_circuit_breaker_continue_then_succeed(tmp_path: Path) -> None:
     with patch("agents.cli.LLMClient") as mock_client_class:
         mock_client = Mock()
         # First 2 fail (trip at 2), then succeed after user continues
-        mock_client.complete.side_effect = [
+        mock_client.complete_with_usage.side_effect = [
             FatalLLMError(Exception("err1")),
             FatalLLMError(Exception("err2")),
-            "Success 3",
-            "Success 4",
+            make_success_response("Success 3"),
+            make_success_response("Success 4"),
         ]
         mock_client_class.return_value = mock_client
 
@@ -101,7 +109,7 @@ def test_process_circuit_breaker_inspect_then_abort(tmp_path: Path) -> None:
 
     with patch("agents.cli.LLMClient") as mock_client_class:
         mock_client = Mock()
-        mock_client.complete.side_effect = FatalLLMError(Exception("Detailed error message"))
+        mock_client.complete_with_usage.side_effect = FatalLLMError(Exception("Detailed error message"))
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(
@@ -139,7 +147,7 @@ def test_process_circuit_breaker_disabled(tmp_path: Path) -> None:
     with patch("agents.cli.LLMClient") as mock_client_class:
         mock_client = Mock()
         # All fail, but circuit breaker is disabled
-        mock_client.complete.side_effect = FatalLLMError(Exception("err"))
+        mock_client.complete_with_usage.side_effect = FatalLLMError(Exception("err"))
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(

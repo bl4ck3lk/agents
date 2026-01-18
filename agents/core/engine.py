@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any
 
 from agents.core.circuit_breaker import CircuitBreaker, CircuitBreakerTripped
-from agents.core.llm_client import FatalLLMError, LLMClient
+from agents.core.llm_client import FatalLLMError, LLMClient, LLMResponse
 from agents.core.postprocessor import PostProcessor
 from agents.core.prompt import PromptTemplate
 
@@ -109,15 +109,23 @@ class ProcessingEngine:
             unit: Data unit to process.
 
         Returns:
-            Processed result dict.
+            Processed result dict with _usage field containing token counts.
         """
         last_result: dict[str, Any] | None = None
         attempts = 1 + self.parse_error_retries  # 1 initial + retries
+        total_usage = {"input": 0, "output": 0}
 
         for attempt in range(attempts):
             try:
                 prompt = self.prompt_template.render(unit)
-                result = self.llm_client.complete(prompt)
+                llm_response: LLMResponse = self.llm_client.complete_with_usage(prompt)
+                result = llm_response.content
+
+                # Accumulate token usage across retries
+                if llm_response.usage:
+                    total_usage["input"] += llm_response.usage.prompt_tokens
+                    total_usage["output"] += llm_response.usage.completion_tokens
+
                 processed_result: dict[str, Any] = {**unit, "result": result}
 
                 # Apply post-processing if enabled
@@ -127,6 +135,9 @@ class ProcessingEngine:
                         merge=self.merge_results,
                         include_raw=self.include_raw_result,
                     )
+
+                # Add usage to result
+                processed_result["_usage"] = total_usage
 
                 # Check if parse error occurred
                 if PARSE_ERROR_KEY not in processed_result:
@@ -140,7 +151,10 @@ class ProcessingEngine:
             except FatalLLMError:
                 raise  # Re-raise for circuit breaker handling
             except Exception as e:
-                return {**unit, "error": str(e)}
+                error_result = {**unit, "_error": str(e)}
+                if total_usage["input"] > 0 or total_usage["output"] > 0:
+                    error_result["_usage"] = total_usage
+                return error_result
 
         # All retries exhausted, return last result with retry info
         if last_result:
@@ -148,19 +162,19 @@ class ProcessingEngine:
             last_result["_attempts"] = attempts
             return last_result
 
-        return {**unit, "error": "Unknown processing error"}
+        return {**unit, "_error": "Unknown processing error"}
 
     def _process_sequential(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         """Process units sequentially."""
         for unit in units:
             try:
                 result = self._process_single_unit(unit)
-                if "error" not in result:
+                if "_error" not in result:
                     self._record_success()
                 yield result
             except FatalLLMError as e:
                 self._record_fatal_error(e.original_error, unit)
-                yield {**unit, "error": str(e)}
+                yield {**unit, "_error": str(e)}
                 self._check_circuit_breaker()
 
     def _process_async(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -189,15 +203,25 @@ class ProcessingEngine:
             unit: Data unit to process.
 
         Returns:
-            Processed result dict.
+            Processed result dict with _usage field containing token counts.
         """
         last_result: dict[str, Any] | None = None
         attempts = 1 + self.parse_error_retries  # 1 initial + retries
+        total_usage = {"input": 0, "output": 0}
 
         for attempt in range(attempts):
             try:
                 prompt = self.prompt_template.render(unit)
-                result = await self.llm_client.complete_async(prompt)
+                llm_response: LLMResponse = await self.llm_client.complete_with_usage_async(
+                    prompt
+                )
+                result = llm_response.content
+
+                # Accumulate token usage across retries
+                if llm_response.usage:
+                    total_usage["input"] += llm_response.usage.prompt_tokens
+                    total_usage["output"] += llm_response.usage.completion_tokens
+
                 processed_result: dict[str, Any] = {**unit, "result": result}
 
                 # Apply post-processing if enabled
@@ -207,6 +231,9 @@ class ProcessingEngine:
                         merge=self.merge_results,
                         include_raw=self.include_raw_result,
                     )
+
+                # Add usage to result
+                processed_result["_usage"] = total_usage
 
                 # Check if parse error occurred
                 if PARSE_ERROR_KEY not in processed_result:
@@ -220,7 +247,10 @@ class ProcessingEngine:
             except FatalLLMError:
                 raise  # Re-raise for circuit breaker handling
             except Exception as e:
-                return {**unit, "error": str(e)}
+                error_result = {**unit, "_error": str(e)}
+                if total_usage["input"] > 0 or total_usage["output"] > 0:
+                    error_result["_usage"] = total_usage
+                return error_result
 
         # All retries exhausted, return last result with retry info
         if last_result:
@@ -228,7 +258,7 @@ class ProcessingEngine:
             last_result["_attempts"] = attempts
             return last_result
 
-        return {**unit, "error": "Unknown processing error"}
+        return {**unit, "_error": "Unknown processing error"}
 
     async def _process_async_incremental(
         self, units: list[dict[str, Any]]
@@ -250,12 +280,12 @@ class ProcessingEngine:
             async with semaphore:
                 try:
                     result = await self._process_single_unit_async(unit)
-                    if "error" not in result:
+                    if "_error" not in result:
                         self._record_success()
                     return result
                 except FatalLLMError as e:
                     self._record_fatal_error(e.original_error, unit)
-                    return {**unit, "error": str(e)}
+                    return {**unit, "_error": str(e)}
 
         # Create all tasks
         tasks = [asyncio.create_task(process_unit(unit)) for unit in units]
