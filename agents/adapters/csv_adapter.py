@@ -40,13 +40,7 @@ class CSVAdapter(DataAdapter):
         if not self._columns:
             self.get_schema()
 
-        # Get original CSV columns if available, otherwise use all keys from results
-        if self._columns:
-            # Use original schema - only write fields that were in the input CSV
-            fieldnames = self._columns
-        else:
-            # Fallback: use all keys from results (for cases where schema wasn't loaded)
-            fieldnames = list(results[0].keys())
+        fieldnames = self._columns or list(results[0].keys())
 
         # Filter results to only include original CSV fields
         filtered_results = []
