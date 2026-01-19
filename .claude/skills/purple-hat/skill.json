@@ -1,0 +1,55 @@
+{
+  "name": "purple-hat",
+  "description": "Deep security pentesting and vulnerability assessment for the Agents LLM batch processing platform. Covers OWASP Top 10 2021, OWASP API Security Top 10 2023, OWASP LLM Top 10 2025, LLM security, S3/MinIO security, FastAPI/SQLAlchemy/Pydantic, container security, CI/CD pipelines, and file upload/download security.",
+  "version": "1.0.0",
+  "author": "Agents Security Team",
+  "keywords": [
+    "security",
+    "pentesting",
+    "vulnerability-assessment",
+    "OWASP",
+    "LLM-security",
+    "FastAPI",
+    "SQLAlchemy",
+    "S3-security",
+    "prompt-injection",
+    "container-security",
+    "CI/CD-security"
+  ],
+  "compatibility": {
+    "claude_code": ">=1.0.0"
+  },
+  "permissions": [],
+  "tags": [
+    "security",
+    "pentesting",
+    "assessment",
+    "vulnerability",
+    "audit",
+    "LLM"
+  ],
+  "documentation": {
+    "main": "SKILL.md",
+    "quick_ref": "QUICK-REF.md",
+    "readme": "README.md",
+    "references": [
+      "references/quick-scan-checklist.md",
+      "references/llm-security-checklist.md",
+      "references/fastapi-security-checklist.md",
+      "references/s3-security-checklist.md",
+      "references/api-security-checklist.md",
+      "references/container-security-checklist.md",
+      "references/file-upload-security-checklist.md",
+      "references/auth-security-checklist.md",
+      "references/database-security-checklist.md",
+      "references/test-payloads.md",
+      "references/incident-response.md",
+      "references/secrets-management.md",
+      "references/security-review-checklist.md",
+      "references/ci-security-workflow.md",
+      "references/supply-chain-security.md"
+    ],
+    "scripts": "scripts/",
+    "training": "training/"
+  }
+}
