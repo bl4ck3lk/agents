@@ -164,7 +164,7 @@ async def lifespan(app: FastAPI):
     try:
         await recovery_task
     except asyncio.CancelledError:
-        pass
+        pass  # Expected: we just cancelled this task during shutdown
 
 
 API_DESCRIPTION = """

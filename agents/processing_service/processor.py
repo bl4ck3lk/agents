@@ -254,7 +254,9 @@ class BatchProcessor:
 
         except Exception as e:
             # Log the full error for debugging (logger.exception includes traceback)
-            logger.exception("Job %s failed", request.web_job_id)
+            # Sanitize job_id to prevent log injection (newlines, control chars)
+            safe_job_id = request.web_job_id.replace("\n", "").replace("\r", "")[:100]
+            logger.exception("Job %s failed", safe_job_id)
 
             # Extract meaningful error message
             from agents.core.circuit_breaker import CircuitBreakerTripped

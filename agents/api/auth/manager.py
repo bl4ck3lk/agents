@@ -29,8 +29,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         """Called after forgot password request."""
         logger.info("User %s has requested password reset.", user.id)
         if auth_config.resend_api_key:
-            reset_url = f"{auth_config.reset_password_url}?token={token}"
-            logger.info("Password reset URL generated for user %s", user.id)
+            # TODO: Send password reset email via Resend API
+            logger.info(
+                "Password reset URL generated for user %s: %s",
+                user.id,
+                f"{auth_config.reset_password_url}?token=***",
+            )
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Request | None = None
@@ -38,8 +42,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         """Called after email verification request."""
         logger.info("User %s has requested email verification.", user.id)
         if auth_config.resend_api_key:
-            verify_url = f"{auth_config.verify_email_url}?token={token}"
-            logger.info("Verification URL generated for user %s", user.id)
+            # TODO: Send verification email via Resend API
+            logger.info(
+                "Verification URL generated for user %s: %s",
+                user.id,
+                f"{auth_config.verify_email_url}?token=***",
+            )
 
 
 async def get_user_db():

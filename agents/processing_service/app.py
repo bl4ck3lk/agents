@@ -17,19 +17,25 @@ logger = logging.getLogger(__name__)
 
 # Internal service authentication via shared secret
 INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
-security = HTTPBearer()
+
+# Use auto_error=False so the Authorization header is optional when token is unset.
+# This allows local/dev TaskQ workers to call /process without a bearer token.
+security = HTTPBearer(auto_error=False)
 
 
 def verify_internal_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> str:
-    """Verify the internal service bearer token."""
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str | None:
+    """Verify the internal service bearer token.
+
+    When INTERNAL_SERVICE_TOKEN is not set, all requests are allowed (dev mode).
+    When set, a matching Authorization: Bearer <token> header is required.
+    """
     if not INTERNAL_SERVICE_TOKEN:
-        logger.warning(
-            "INTERNAL_SERVICE_TOKEN not set - processing service is unprotected. "
-            "Set INTERNAL_SERVICE_TOKEN env var for production."
-        )
-        return credentials.credentials
+        # No token configured - allow all requests (development mode)
+        return None
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Authorization header required")
     if credentials.credentials != INTERNAL_SERVICE_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid service token")
     return credentials.credentials
