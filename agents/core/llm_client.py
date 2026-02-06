@@ -76,6 +76,9 @@ If the task asks for multiple values, return them as a JSON object with descript
 class LLMClient:
     """Client for interacting with LLM APIs."""
 
+    # Default request timeout in seconds (connect, read, write, pool)
+    DEFAULT_TIMEOUT = 120.0
+
     def __init__(
         self,
         api_key: str,
@@ -85,6 +88,7 @@ class LLMClient:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         system_prompt: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         self.model = model
         self.temperature = temperature
@@ -92,8 +96,9 @@ class LLMClient:
         self.max_retries = max_retries
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
 
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        request_timeout = timeout or self.DEFAULT_TIMEOUT
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=request_timeout)
+        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=request_timeout)
 
     def _build_messages(self, prompt: str) -> list[dict[str, str]]:
         """Build messages array with system prompt."""

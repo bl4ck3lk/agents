@@ -170,10 +170,10 @@ async def get_file_download_url(
     """Get a presigned download URL for a file."""
     storage = get_storage_client()
 
-    # Verify the key belongs to this user (uploads or results)
+    # Verify the key belongs to this user (uploads, results, or outputs scoped by user)
     user_prefix = f"uploads/{user.id}/"
-    results_prefix = "results/"
-    outputs_prefix = "outputs/"
+    results_prefix = f"results/{user.id}/"
+    outputs_prefix = f"outputs/{user.id}/"
 
     if not (
         key.startswith(user_prefix)

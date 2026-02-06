@@ -31,14 +31,14 @@ class User(SQLAlchemyBaseUserTableUUID, Base, TimestampMixin):
     )
     monthly_usage_limit_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
-    # Relationships
-    api_keys: Mapped[list[APIKey]] = relationship(
+    # Relationships (use string annotations for forward references)
+    api_keys: Mapped[list["APIKey"]] = relationship(  # noqa: UP037
         "APIKey", back_populates="user", cascade="all, delete-orphan"
     )
-    web_jobs: Mapped[list[WebJob]] = relationship(
+    web_jobs: Mapped[list["WebJob"]] = relationship(  # noqa: UP037
         "WebJob", back_populates="user", cascade="all, delete-orphan"
     )
-    usage_records: Mapped[list[Usage]] = relationship(
+    usage_records: Mapped[list["Usage"]] = relationship(  # noqa: UP037
         "Usage", back_populates="user", cascade="all, delete-orphan"
     )
 

@@ -128,15 +128,17 @@ def test_sequential_processing(mock_client: Mock) -> None:
 - Use `async def` and `await` for async operations
 - Use `AsyncMock` for mocking async functions
 - Use `asyncio.Semaphore` for concurrency control
-- Run async code from sync context using `asyncio.run()` or event loop
+- In FastAPI/async contexts, use `engine.process_async()` (not `engine.process()`)
+- The sync `process()` method creates its own event loop and cannot nest inside FastAPI's loop
 
 ```python
-async def process_async(self, units: list[dict]) -> AsyncIterator[dict]:
-    """Process units asynchronously."""
-    semaphore = asyncio.Semaphore(self.batch_size)
-    async with semaphore:
-        result = await self._process_single_async(unit)
-        yield result
+# In async context (FastAPI, processing service):
+async for result in engine.process_async(units):
+    yield result
+
+# In sync context (CLI):
+for result in engine.process(units):
+    print(result)
 ```
 
 ### Configuration
@@ -144,6 +146,8 @@ async def process_async(self, units: list[dict]) -> AsyncIterator[dict]:
 - Environment variables via `os.getenv()` or pydantic-settings
 - Default values in code, override via environment
 - Secret keys should never be logged or committed
+- Use `logging` module instead of `print()` for all output
+- Encrypt sensitive data at rest via `agents/api/security.py`
 
 ### Patterns
 - ABCs for interfaces (e.g., `class DataAdapter(ABC)`)
@@ -153,9 +157,16 @@ async def process_async(self, units: list[dict]) -> AsyncIterator[dict]:
 - Retry logic with exponential backoff (tenacity library)
 
 ### File Structure
-- `agents/adapters/` - Data format adapters (CSV, JSON, etc.)
-- `agents/core/` - Core processing logic (engine, LLM client, circuit breaker)
-- `agents/utils/` - Utilities (config, progress tracking)
-- `agents/api/` - FastAPI web API routes and schemas
+- `agents/adapters/` - Data format adapters (CSV, JSON, SQLite, etc.) with path traversal and SQL injection protection
+- `agents/core/` - Core processing logic (engine, LLM client, circuit breaker, postprocessor)
+- `agents/utils/` - Utilities (config, progress tracking, content moderation, model validation, env helpers)
+- `agents/api/` - FastAPI web API (all endpoints require JWT auth via `current_active_user`)
+- `agents/api/auth/` - Authentication (fastapi-users, JWT, OAuth)
+- `agents/api/security.py` - Fernet encryption for API keys
+- `agents/api/routes/` - Route handlers (jobs, files, API keys, usage, admin)
+- `agents/processing_service/` - Separate FastAPI service for LLM processing (bearer token auth)
+- `agents/db/` - SQLAlchemy async models and session management
+- `agents/storage/` - S3-compatible storage client
+- `agents/taskq/` - TaskQ client for job queuing
 - `tests/` - Test files mirroring source structure
 - `alembic/` - Database migrations

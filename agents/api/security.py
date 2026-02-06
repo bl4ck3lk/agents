@@ -1,9 +1,12 @@
 """Security utilities for API key encryption."""
 
+import logging
 import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 
 from cryptography.fernet import Fernet
+
+logger = logging.getLogger(__name__)
 
 
 class APIKeyEncryption:
@@ -23,8 +26,10 @@ class APIKeyEncryption:
             else:
                 # Generate a new key for development (not recommended for production)
                 key = Fernet.generate_key()
-                print("WARNING: Generated new encryption key. Set ENCRYPTION_KEY env var.")
-                print(f"ENCRYPTION_KEY={key.decode()}")
+                logger.warning(
+                    "ENCRYPTION_KEY not set - generated ephemeral key. "
+                    "Set ENCRYPTION_KEY env var for production."
+                )
 
         # Fernet requires URL-safe base64 encoded 32-byte key
         if len(key) == 32:

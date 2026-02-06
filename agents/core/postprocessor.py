@@ -9,7 +9,7 @@ class PostProcessor:
     """Post-processor for extracting and parsing structured data from LLM output."""
 
     @staticmethod
-    def extract_json_from_markdown(text: str) -> dict[str, Any] | None:
+    def extract_json_from_markdown(text: str) -> dict[str, Any] | list | str | int | float | bool | None:
         """
         Extract JSON from markdown code blocks.
 
@@ -17,12 +17,13 @@ class PostProcessor:
         - ```json\n{...}\n```
         - ```\n{...}\n```
         - Plain JSON: {...}
+        - JSON arrays: [...]
 
         Args:
             text: Text that may contain JSON in markdown code blocks.
 
         Returns:
-            Parsed JSON dictionary, or None if extraction fails.
+            Parsed JSON value (dict, list, or primitive), or None if extraction fails.
         """
         if not text:
             return None
@@ -35,13 +36,13 @@ class PostProcessor:
         if match:
             json_str = match.group(1).strip()
         else:
-            # Try to find JSON object directly (starts with { and ends with })
-            json_pattern = r"\{.*\}"
+            # Try to find JSON object directly (starts with { or [)
+            json_pattern = r"[\{\[].*[\}\]]"
             json_match = re.search(json_pattern, text, re.DOTALL)
             json_str = json_match.group(0) if json_match else text.strip()
 
         try:
-            result: dict[str, Any] = json.loads(json_str)
+            result = json.loads(json_str)
             return result
         except (json.JSONDecodeError, ValueError):
             return None
@@ -72,11 +73,11 @@ class PostProcessor:
         processed = {**result}
 
         if parsed_json is not None:
-            if merge:
+            if isinstance(parsed_json, dict) and merge:
                 # Merge parsed fields into root
                 processed.update(parsed_json)
             else:
-                # Add to parsed field
+                # Non-dict JSON (arrays, primitives) or merge=False: add to parsed field
                 processed["parsed"] = parsed_json
         else:
             # If parsing failed, add error info

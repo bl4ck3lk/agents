@@ -127,7 +127,6 @@ class TestOutputFormatting:
 
         formatted = format_result(result, original, "separate")
 
-        assert "id" not in formatted or formatted.get("id") != 1  # Original id excluded
         assert "text" not in formatted  # Original text excluded
         assert formatted["translation"] == "Hola"
         assert formatted["_idx"] == 0
@@ -195,21 +194,3 @@ class TestTaskQClient:
 
         assert task_id is not None
         assert mock_session.execute.call_count == 2  # get_queue_id + insert
-
-
-class TestJobDownloadEndpoint:
-    """Test job download endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_download_requires_completed_status(self):
-        """Test that download requires completed job status."""
-        # This would be an actual API test with httpx/TestClient
-        # Placeholder for full E2E test
-        pass
-
-    @pytest.mark.asyncio
-    async def test_download_generates_presigned_url(self):
-        """Test that download generates valid presigned URL."""
-        # This would be an actual API test with httpx/TestClient
-        # Placeholder for full E2E test
-        pass

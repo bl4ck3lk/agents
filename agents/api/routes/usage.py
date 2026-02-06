@@ -1,5 +1,7 @@
 """Usage tracking and billing routes."""
 
+import csv
+import io
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -262,12 +264,34 @@ async def export_usage(
     records = result.scalars().all()
 
     def generate_csv() -> Iterator[str]:
-        # Header
-        yield "id,job_id,model,provider,tokens_input,tokens_output,cost_usd,raw_cost_usd,markup_usd,used_platform_key,created_at\n"
+        fieldnames = [
+            "id", "job_id", "model", "provider", "tokens_input", "tokens_output",
+            "cost_usd", "raw_cost_usd", "markup_usd", "used_platform_key", "created_at",
+        ]
+        # Write header
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        yield output.getvalue()
 
-        # Rows
+        # Write rows using csv module to properly escape special characters
         for r in records:
-            yield f"{r.id},{r.job_id},{r.model or ''},{r.provider or ''},{r.tokens_input},{r.tokens_output},{r.cost_usd},{r.raw_cost_usd},{r.markup_usd},{r.used_platform_key},{r.created_at.isoformat()}\n"
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writerow({
+                "id": r.id,
+                "job_id": r.job_id,
+                "model": r.model or "",
+                "provider": r.provider or "",
+                "tokens_input": r.tokens_input,
+                "tokens_output": r.tokens_output,
+                "cost_usd": str(r.cost_usd),
+                "raw_cost_usd": str(r.raw_cost_usd),
+                "markup_usd": str(r.markup_usd),
+                "used_platform_key": r.used_platform_key,
+                "created_at": r.created_at.isoformat(),
+            })
+            yield output.getvalue()
 
     return StreamingResponse(
         generate_csv(),

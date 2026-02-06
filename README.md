@@ -191,7 +191,7 @@ The web application provides a full-featured UI for batch processing with:
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Node.js 18+
 - Docker and Docker Compose
 - uv (recommended) or pip
@@ -406,11 +406,13 @@ See `.env.example` for all available options. Required variables:
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://user:pass@host:5432/db` |
 | `SECRET_KEY` | JWT signing key (32+ chars) | `your-secret-key-here` |
-| `ENCRYPTION_KEY` | API key encryption key (32 bytes) | `your-32-byte-encryption-key!!` |
+| `ENCRYPTION_KEY` | API key encryption key (Fernet) | `your-32-byte-encryption-key!!` |
+| `INTERNAL_SERVICE_TOKEN` | Processing service auth token | `your-service-token` |
 | `S3_ENDPOINT_URL` | S3/MinIO endpoint | `https://s3.amazonaws.com` |
 | `AWS_ACCESS_KEY_ID` | S3 access key | `AKIA...` |
 | `AWS_SECRET_ACCESS_KEY` | S3 secret key | `...` |
 | `S3_BUCKET_NAME` | S3 bucket name | `agents-production` |
+| `REDIS_URL` | Redis URL for rate limiting | `redis://localhost:6379` |
 
 ### Option 1: Docker Compose (Simple)
 
@@ -448,13 +450,17 @@ See `docs/deployment/cloud.md` for detailed instructions.
 ### Production Checklist
 
 - [ ] Set strong `SECRET_KEY` and `ENCRYPTION_KEY`
+- [ ] Set `INTERNAL_SERVICE_TOKEN` for processing service auth
 - [ ] Configure PostgreSQL with SSL
 - [ ] Set up S3 bucket with appropriate permissions
+- [ ] Set `REDIS_URL` for distributed rate limiting
 - [ ] Configure Sentry for error monitoring (`SENTRY_DSN`)
-- [ ] Set `ENVIRONMENT=production`
+- [ ] Set `ENVIRONMENT=production` (enables env var validation at startup)
 - [ ] Configure CORS origins (`CORS_ORIGINS`)
 - [ ] Set up SSL/TLS termination
-- [ ] Configure rate limiting appropriately
+- [ ] Configure allowed models (`ALLOWED_MODELS`)
+- [ ] Enable usage limits (`ENFORCE_USAGE_LIMITS=true`)
+- [ ] Enable content moderation (`ENABLE_CONTENT_MODERATION=true`)
 - [ ] Set up database backups
 - [ ] Configure logging and monitoring
 
@@ -477,6 +483,17 @@ AWS_SECRET_ACCESS_KEY=minioadmin
 S3_BUCKET_NAME=agents
 AWS_REGION=us-east-1
 
+# === Security ===
+
+# Internal service auth (processing service <-> TaskQ worker)
+INTERNAL_SERVICE_TOKEN=your-internal-service-token
+
+# Redis for distributed rate limiting (recommended for multi-instance)
+REDIS_URL=redis://localhost:6380
+
+# Stuck job recovery timeout (minutes, default: 30)
+STUCK_JOB_TIMEOUT_MINUTES=30
+
 # === Optional ===
 
 # OAuth Providers
@@ -497,6 +514,13 @@ SENTRY_PROFILES_SAMPLE_RATE=0.1
 # CORS
 CORS_ORIGINS=http://localhost:3000
 
+# Model validation
+ALLOWED_MODELS=gpt-4o,gpt-4o-mini,gpt-4-turbo,anthropic/claude-3.5-sonnet
+
+# Usage and moderation
+ENFORCE_USAGE_LIMITS=true
+ENABLE_CONTENT_MODERATION=true
+
 # Presigned URL expiry (seconds)
 S3_PRESIGNED_EXPIRY=900
 
@@ -507,7 +531,7 @@ RELOAD=false
 
 ### Rate Limits
 
-Default rate limits per authenticated user:
+Default rate limits per authenticated user (backed by Redis when `REDIS_URL` is set, otherwise in-memory):
 
 | Endpoint | Limit |
 |----------|-------|
@@ -515,6 +539,8 @@ Default rate limits per authenticated user:
 | File uploads | 30/minute |
 | Prompt testing | 30/minute |
 | Model comparison | 10/minute |
+
+> **Note:** In-memory rate limiting is not suitable for multi-instance deployments. Set `REDIS_URL` in production.
 
 ---
 
@@ -632,13 +658,16 @@ make db-shell
 # UPDATE tasks SET status = 'pending', attempts = 0, last_error = NULL WHERE status = 'dead_letter';
 ```
 
-**Processing Service not running:**
+**Processing Service not running or returning 401:**
 ```bash
 # Check if port 8001 is responding
 curl http://localhost:8001/health
 
 # Start it manually if needed
 make processing-service
+
+# If getting 401 Unauthorized on /process, ensure INTERNAL_SERVICE_TOKEN
+# matches between the API and processing service environments
 ```
 
 **Frontend can't connect to API:**

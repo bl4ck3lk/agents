@@ -1,8 +1,11 @@
 """Authentication configuration."""
 
+import logging
 import os
 import secrets
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,8 +35,17 @@ class AuthConfig:
     @classmethod
     def from_env(cls) -> AuthConfig:
         """Create config from environment variables."""
+        secret_key = os.getenv("SECRET_KEY")
+        if not secret_key:
+            secret_key = secrets.token_urlsafe(32)
+            logger.warning(
+                "SECRET_KEY not set - generated random key. "
+                "JWT tokens will be invalidated on restart and rejected by other instances. "
+                "Set SECRET_KEY env var for production."
+            )
+
         return cls(
-            secret_key=os.getenv("SECRET_KEY", secrets.token_urlsafe(32)),
+            secret_key=secret_key,
             google_client_id=os.getenv("GOOGLE_CLIENT_ID"),
             google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
             github_client_id=os.getenv("GITHUB_CLIENT_ID"),

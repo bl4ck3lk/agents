@@ -8,9 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.adapters import get_adapter
-from agents.core.engine import ProcessingEngine
-from agents.core.llm_client import LLMClient
-from agents.core.prompt import PromptTemplate
+from agents.api.security import get_encryption
 from agents.core.engine import ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
@@ -137,14 +135,18 @@ class BatchProcessor:
 
             total = len(units)
 
+            # Decrypt the API key from the encrypted payload
+            encryption = get_encryption()
+            api_key = encryption.decrypt(request.encrypted_api_key)
+
             # Auto-detect OpenRouter keys and set base_url
             base_url = request.base_url
-            if not base_url and request.api_key.startswith("sk-or-"):
+            if not base_url and api_key.startswith("sk-or-"):
                 base_url = "https://openrouter.ai/api/v1"
 
             # Create LLM client with optional custom system prompt
             llm_client = LLMClient(
-                api_key=request.api_key,
+                api_key=api_key,
                 model=request.model,
                 base_url=base_url,
                 max_tokens=request.config.get("max_tokens", DEFAULT_MAX_TOKENS),
@@ -155,13 +157,13 @@ class BatchProcessor:
             prompt_template = PromptTemplate(request.prompt)
 
             # Create processing engine
-            # Map config options to ProcessingEngine parameter names
-            # Note: Force sequential mode because we're already in FastAPI's async event loop
-            # The engine's "async" mode uses run_until_complete() which can't nest
+            # Use the configured mode - process_async() works within existing event loops
+            config_mode = request.config.get("mode", "async")
+            mode = ProcessingMode.SEQUENTIAL if config_mode == "sequential" else ProcessingMode.ASYNC
             engine = ProcessingEngine(
                 llm_client=llm_client,
                 prompt_template=prompt_template,
-                mode=ProcessingMode.SEQUENTIAL,  # Force sequential - async mode conflicts with FastAPI's event loop
+                mode=mode,
                 batch_size=request.config.get("batch_size", 10),
                 post_process=not request.config.get("no_post_process", False),
                 include_raw_result=request.config.get("include_raw", False),
@@ -186,7 +188,7 @@ class BatchProcessor:
             await update_job_progress(request.web_job_id, 0, 0, total)
 
             with open(results_path, "w") as f:
-                for result in engine.process(units):
+                async for result in engine.process_async(units):
                     # Get original unit for this result
                     idx = result.get("_idx", 0)
                     original_unit = units_by_idx.get(idx, {})
@@ -251,20 +253,20 @@ class BatchProcessor:
             )
 
         except Exception as e:
-            # Log the full error for debugging
-            logger.exception(f"Job {request.web_job_id} failed with error: {e}")
-            print(f"ERROR processing job {request.web_job_id}: {e}")
-            import traceback
-
-            traceback.print_exc()
+            # Log the full error for debugging (logger.exception includes traceback)
+            # Sanitize job_id to prevent log injection (newlines, control chars)
+            safe_job_id = request.web_job_id.replace("\n", "").replace("\r", "")[:100]
+            logger.exception("Job %s failed", safe_job_id)
 
             # Extract meaningful error message
             from agents.core.circuit_breaker import CircuitBreakerTripped
 
-            error_message = str(e)
             if isinstance(e, CircuitBreakerTripped) and e.status.get("last_error_message"):
                 # Use the underlying error, not just "circuit breaker tripped"
                 error_message = f"Processing failed: {e.status['last_error_message']}"
+            else:
+                # Sanitize error message to avoid exposing internal paths/stack traces
+                error_message = f"Processing failed: {type(e).__name__}"
 
             # Update job status to failed
             await update_job_status(

@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Agents! This guide will help you 
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - Node.js 18+
 - Docker and Docker Compose
 - uv (recommended) or pip
@@ -30,9 +30,11 @@ make dev
 ```
 
 This starts:
-- PostgreSQL on port 5432
+- PostgreSQL on port 5433
 - MinIO (S3) on port 9000 (console: 9001)
-- FastAPI backend on port 8000
+- Redis on port 6380
+- FastAPI backend on port 8002
+- Processing Service on port 8001
 - Next.js frontend on port 3000
 
 ## Project Structure
@@ -321,10 +323,15 @@ make dev
 
 ### Example
 
+All API endpoints require authentication. Use `Depends(current_active_user)`:
+
 ```python
 # agents/api/routes/my_route.py
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from agents.api.auth import current_active_user
+from agents.db.models import User
 
 router = APIRouter(prefix="/my-endpoint", tags=["MyTag"])
 
@@ -335,10 +342,25 @@ class MyResponse(BaseModel):
     result: str
 
 @router.post("", response_model=MyResponse)
-async def my_endpoint(body: MyRequest) -> MyResponse:
-    """Description for OpenAPI docs."""
+async def my_endpoint(
+    body: MyRequest,
+    user: User = Depends(current_active_user),
+) -> MyResponse:
+    """Description for OpenAPI docs. Requires authentication."""
     return MyResponse(result=body.field.upper())
 ```
+
+### Security Guidelines
+
+When adding new endpoints or features:
+
+- Always add `Depends(current_active_user)` to endpoints that access user data
+- Never log API keys, tokens, or other secrets (use `logging`, not `print()`)
+- Scope file/data access to the authenticated user (`user.id`)
+- Validate and sanitize all user inputs
+- Use parameterized queries; never interpolate user data into SQL
+- Encrypt sensitive data at rest (see `agents/api/security.py`)
+- Return generic error messages to clients (not stack traces or internal paths)
 
 ## Frontend Development
 

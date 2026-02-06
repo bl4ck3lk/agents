@@ -13,7 +13,7 @@ class ProcessRequest(BaseModel):
     prompt: str = Field(..., description="Prompt template with {field} placeholders")
     model: str = Field(..., description="LLM model to use")
     config: dict[str, Any] = Field(default_factory=dict, description="Processing config")
-    api_key: str = Field(..., description="LLM API key (decrypted)")
+    encrypted_api_key: str = Field(..., description="Fernet-encrypted LLM API key")
     results_url: str = Field(..., description="S3 URL to write results")
     base_url: str | None = Field(None, description="Optional base URL for LLM API")
 

@@ -59,7 +59,7 @@ Implemented critical security fixes identified in the security audit.
 
 ---
 
-## Tests Added
+## Tests
 
 ### 1. Prompt Injection Tests
 **File:** `tests/test_prompt_injection.py`
@@ -71,18 +71,18 @@ Implemented critical security fixes identified in the security audit.
 - `test_normal_input_unchanged()` - Verifies normal text passes through
 - `test_multiple_injections()` - Multiple patterns in one input
 
-**Run:** `python tests/test_prompt_injection.py`
+**Run:** `pytest tests/test_prompt_injection.py -v`
 
 ---
 
 ### 2. SQL Injection Tests
 **File:** `tests/test_sql_injection.py`
 **Tests:**
-- `test_sql_injection_protection()` - Verifies parameterized CASE expressions work
-- Tests all status transitions (processing, completed, failed)
-- Attempts malicious status with SQL injection pattern
+- `TestSQLQueryValidation` - Tests SELECT-only validation, keyword blocking (INSERT/DROP/UPDATE/DELETE/ATTACH/PRAGMA)
+- `TestIdentifierValidation` - Tests column name quoting and rejection of unsafe identifiers
+- `TestSQLiteAdapterSafety` - Tests URI-based injection blocking, safe queries, and write validation
 
-**Run:** `python tests/test_sql_injection.py`
+**Run:** `pytest tests/test_sql_injection.py -v`
 
 ---
 
@@ -119,15 +119,17 @@ Before deploying, verify:
 
 ---
 
-## Next Steps (Priority 2)
+## Next Steps (Priority 2) - All Completed
 
-After Priority 1 fixes are deployed and verified:
+All Priority 2 items have been implemented:
 
-1. **Add model validation whitelist** - Restrict to allowed models
-2. **Enforce usage limits** - Check `monthly_usage_limit_usd` before processing
-3. **Restrict CORS configuration** - Remove wildcard methods/headers
-4. **Implement output content moderation** - Filter harmful LLM outputs
-5. **Move system prompts to environment** - Hide from source code
+1. **Model validation whitelist** - ✅ Implemented in `agents/utils/model_validation.py`
+2. **Enforce usage limits** - ✅ Checked at job creation in `agents/api/routes/jobs.py`
+3. **Restrict CORS configuration** - ✅ Explicit methods/headers in `agents/api/app.py`
+4. **Output content moderation** - ✅ Implemented in `agents/utils/content_moderation.py`
+5. **System prompts in environment** - ✅ `DEFAULT_SYSTEM_PROMPT` env var in `agents/core/llm_client.py`
+
+See `SECURITY_FIXES_PRIORITY2.md` for details.
 
 ---
 

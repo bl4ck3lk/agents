@@ -1,5 +1,6 @@
 """User manager for fastapi-users."""
 
+import logging
 import uuid
 
 from fastapi import Depends, Request
@@ -8,6 +9,8 @@ from fastapi_users import BaseUserManager, UUIDIDMixin
 from agents.api.auth.config import auth_config
 from agents.db.models import User
 from agents.db.session import async_session_maker
+
+logger = logging.getLogger(__name__)
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -18,24 +21,33 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def on_after_register(self, user: User, request: Request | None = None) -> None:
         """Called after user registration."""
-        print(f"User {user.id} has registered.")
-        # TODO: Send welcome email if email service is configured
+        logger.info("User %s has registered.", user.id)
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
     ) -> None:
         """Called after forgot password request."""
-        print(f"User {user.id} has requested password reset.")
-        # TODO: Send password reset email
-        # reset_url = f"{auth_config.reset_password_url}?token={token}"
+        logger.info("User %s has requested password reset.", user.id)
+        if auth_config.resend_api_key:
+            # TODO: Send password reset email via Resend API
+            logger.info(
+                "Password reset URL generated for user %s: %s",
+                user.id,
+                f"{auth_config.reset_password_url}?token=***",
+            )
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Request | None = None
     ) -> None:
         """Called after email verification request."""
-        print(f"User {user.id} has requested email verification.")
-        # TODO: Send verification email
-        # verify_url = f"{auth_config.verify_email_url}?token={token}"
+        logger.info("User %s has requested email verification.", user.id)
+        if auth_config.resend_api_key:
+            # TODO: Send verification email via Resend API
+            logger.info(
+                "Verification URL generated for user %s: %s",
+                user.id,
+                f"{auth_config.verify_email_url}?token=***",
+            )
 
 
 async def get_user_db():
