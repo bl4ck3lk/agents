@@ -274,13 +274,18 @@ async def create_job(
     await session.refresh(job)
 
     # Insert task into TaskQ
+    # Encrypt the API key before storing in the task payload to avoid
+    # plaintext secrets in the database (TaskQ stores payloads as JSONB).
+    encryption = get_encryption()
+    encrypted_api_key = encryption.encrypt(api_key)
+
     task_payload = {
         "web_job_id": job.id,
         "file_url": input_file_url,
         "prompt": body.prompt,
         "model": body.model,
         "config": config_dict,
-        "api_key": api_key,
+        "encrypted_api_key": encrypted_api_key,
         "results_url": results_url,
         "base_url": base_url,
         # Usage tracking fields

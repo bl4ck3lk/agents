@@ -178,22 +178,65 @@ class ProcessingEngine:
                 self._check_circuit_breaker()
 
     def _process_async(self, units: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-        """Process units asynchronously using batch processing with incremental results."""
-        # Create new event loop for async processing
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        """Process units asynchronously using batch processing with incremental results.
+
+        When called from a synchronous context (e.g., CLI), creates a new event loop.
+        For use within an existing event loop (e.g., FastAPI), use process_async() instead.
+        """
+        # Check if we're already in an event loop
         try:
-            # Use async generator to yield results as they complete
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # We're inside an existing event loop - can't use run_until_complete.
+            # Callers in async context should use process_async() instead.
+            raise RuntimeError(
+                "Cannot use sync _process_async() inside an existing event loop. "
+                "Use process_async() for async contexts."
+            )
+
+        # Create new event loop for sync-to-async bridging (CLI usage)
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
             async_gen = self._process_async_incremental(units)
             while True:
                 try:
-                    result = loop.run_until_complete(async_gen.__anext__())
+                    result = new_loop.run_until_complete(async_gen.__anext__())
                     yield result
                 except StopAsyncIteration:
                     break
         finally:
-            loop.close()
+            new_loop.close()
             asyncio.set_event_loop(None)
+
+    async def process_async(self, units: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
+        """Process data units asynchronously, compatible with existing event loops.
+
+        Use this method when running within an async context (e.g., FastAPI).
+
+        Args:
+            units: List of data units to process.
+
+        Yields:
+            Processed results as they complete.
+        """
+        if self.mode == ProcessingMode.SEQUENTIAL:
+            for unit in units:
+                try:
+                    result = await self._process_single_unit_async(unit)
+                    if "_error" not in result:
+                        self._record_success()
+                    yield result
+                except FatalLLMError as e:
+                    self._record_fatal_error(e.original_error, unit)
+                    yield {**unit, "_error": str(e)}
+                    self._check_circuit_breaker()
+        else:
+            async for result in self._process_async_incremental(units):
+                yield result
 
     async def _process_single_unit_async(self, unit: dict[str, Any]) -> dict[str, Any]:
         """

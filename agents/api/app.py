@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import sentry_sdk
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +19,8 @@ from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+
+logger = logging.getLogger(__name__)
 
 # Initialize Sentry for error monitoring
 SENTRY_DSN = os.getenv("SENTRY_DSN")
@@ -34,9 +38,8 @@ if SENTRY_DSN:
         send_default_pii=False,
     )
 
-from agents.api.auth import auth_backend, fastapi_users
+from agents.api.auth import auth_backend, current_active_user, fastapi_users
 from agents.api.auth.schemas import UserCreate, UserRead, UserUpdate
-from agents.api.job_manager import JobManager
 from agents.api.routes import api_keys_router, files_router, jobs_router
 from agents.api.routes.admin import router as admin_router
 from agents.api.routes.usage import router as usage_router
@@ -46,14 +49,10 @@ from agents.api.schemas import (
     CompareResult,
     PromptTestRequest,
     PromptTestResponse,
-    ResultsResponse,
-    RunCreateRequest,
-    RunDetailResponse,
-    RunListResponse,
-    RunResumeRequest,
 )
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
+from agents.db.models import User
 from agents.storage import get_storage_client
 from agents.utils.config import DEFAULT_MAX_TOKENS
 
@@ -67,23 +66,105 @@ def get_user_identifier(request: Request) -> str:
     return get_remote_address(request)
 
 
-# Initialize rate limiter
-limiter = Limiter(key_func=get_user_identifier)
+# Initialize rate limiter with Redis backend if available, else in-memory fallback
+_redis_url = os.getenv("REDIS_URL")
+if _redis_url:
+    limiter = Limiter(key_func=get_user_identifier, storage_uri=_redis_url)
+else:
+    limiter = Limiter(key_func=get_user_identifier)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan events."""
+    """Application lifespan events with graceful shutdown support."""
+    import signal
+
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler(signum: int, frame: Any) -> None:
+        sig_name = signal.Signals(signum).name
+        logger.info("Received %s, initiating graceful shutdown...", sig_name)
+        shutdown_event.set()
+
+    # Register signal handlers for graceful shutdown
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, _signal_handler)
+
+    # Startup: validate critical env vars in production
+    environment = os.getenv("ENVIRONMENT", "development")
+    if environment == "production":
+        from agents.utils.config_env import validate_required_env_vars
+
+        try:
+            validate_required_env_vars("SECRET_KEY", "ENCRYPTION_KEY", "DATABASE_URL")
+        except ValueError as e:
+            logger.error("Environment validation failed: %s", e)
+
     # Startup: ensure storage bucket exists
     try:
         storage = get_storage_client()
         await storage.ensure_bucket_exists()
     except Exception as e:
-        print(f"Warning: Could not initialize storage: {e}")
+        logger.warning("Could not initialize storage: %s", e)
+
+    # Start background task to recover stuck jobs
+    async def recover_stuck_jobs() -> None:
+        """Periodically check for jobs stuck in 'processing' state and re-queue them."""
+        from datetime import datetime, timedelta
+
+        from sqlalchemy import select, update
+
+        from agents.db.models import WebJob
+        from agents.db.session import async_session_maker
+
+        stuck_timeout = timedelta(minutes=int(os.getenv("STUCK_JOB_TIMEOUT_MINUTES", "30")))
+
+        while not shutdown_event.is_set():
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                async with async_session_maker() as session:
+                    cutoff = datetime.utcnow() - stuck_timeout
+                    result = await session.execute(
+                        select(WebJob).where(
+                            WebJob.status == "processing",
+                            WebJob.started_at < cutoff,
+                        )
+                    )
+                    stuck_jobs = result.scalars().all()
+                    for job in stuck_jobs:
+                        logger.warning(
+                            "Job %s stuck in processing since %s, marking as failed",
+                            job.id,
+                            job.started_at,
+                        )
+                        await session.execute(
+                            update(WebJob)
+                            .where(WebJob.id == job.id)
+                            .values(
+                                status="failed",
+                                error_message="Job timed out (stuck in processing state)",
+                                completed_at=datetime.utcnow(),
+                            )
+                        )
+                    if stuck_jobs:
+                        await session.commit()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Error in stuck job recovery task")
+
+    recovery_task = asyncio.create_task(recover_stuck_jobs())
 
     yield
 
-    # Shutdown: cleanup if needed
+    # Shutdown: graceful cleanup
+    logger.info("Application shutting down, draining in-flight requests...")
+    shutdown_event.set()
+    recovery_task.cancel()
+    try:
+        await recovery_task
+    except asyncio.CancelledError:
+        pass
 
 
 API_DESCRIPTION = """
@@ -196,9 +277,6 @@ app.include_router(jobs_router)
 app.include_router(admin_router)
 app.include_router(usage_router)
 
-# Legacy job manager for backwards compatibility with existing UI
-manager = JobManager()
-
 # Mount static assets for legacy UI
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
@@ -214,82 +292,18 @@ def index() -> Any:
     return HTMLResponse("<h1>Agents API</h1><p>API is running. See /docs for documentation.</p>")
 
 
-# Legacy routes for backwards compatibility
-@app.post("/runs", response_model=RunDetailResponse, tags=["Legacy"])
-@limiter.limit("10/minute")
-def create_run(request: Request, body: RunCreateRequest) -> Any:
-    """Create a run (legacy endpoint)."""
-    if not body.api_key:
-        raise HTTPException(status_code=400, detail="api_key is required")
-    job = manager.start_job(
-        input_file=body.input_file,
-        output_file=body.output_file,
-        prompt=body.prompt,
-        config_path=body.config_path,
-        model=body.model,
-        api_key=body.api_key,
-        base_url=body.base_url,
-        mode=body.mode.value if body.mode else None,
-        batch_size=body.batch_size,
-        max_tokens=body.max_tokens,
-        include_raw=body.include_raw,
-        no_post_process=body.no_post_process,
-        no_merge=body.no_merge,
-        checkin_interval=body.checkin_interval,
-    )
-    info = manager.get_run(job.job_id)
-    return RunDetailResponse(run=info, metadata=manager._job_metadata(job))
-
-
-@app.post("/runs/{job_id}/resume", response_model=RunDetailResponse, tags=["Legacy"])
-def resume_run(job_id: str, body: RunResumeRequest) -> Any:
-    """Resume a run (legacy endpoint)."""
-    if not body.api_key:
-        raise HTTPException(status_code=400, detail="api_key is required")
-    job = manager.resume_job(job_id, api_key=body.api_key, checkin_interval=body.checkin_interval)
-    info = manager.get_run(job.job_id)
-    return RunDetailResponse(run=info, metadata=manager._job_metadata(job))
-
-
-@app.get("/runs", response_model=RunListResponse, tags=["Legacy"])
-def list_runs() -> Any:
-    """List runs (legacy endpoint)."""
-    runs = manager.list_runs()
-    return RunListResponse(runs=runs)
-
-
-@app.get("/runs/{job_id}", response_model=RunDetailResponse, tags=["Legacy"])
-def get_run(job_id: str) -> Any:
-    """Get run details (legacy endpoint)."""
-    try:
-        info = manager.get_run(job_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="run not found")
-    job = manager.jobs.get(job_id)
-    metadata = manager._job_metadata(job) if job else {}
-    return RunDetailResponse(run=info, metadata=metadata)
-
-
-@app.get("/runs/{job_id}/results", response_model=ResultsResponse, tags=["Legacy"])
-def get_results(job_id: str, offset: int = 0, limit: int = 50) -> Any:
-    """Get run results (legacy endpoint)."""
-    try:
-        results = manager.get_results_slice(job_id, offset, limit)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="run not found")
-    return ResultsResponse(
-        job_id=job_id,
-        offset=offset,
-        limit=limit,
-        total_returned=len(results),
-        results=results,
-    )
+# Legacy /runs endpoints have been removed (security: unauthenticated access).
+# Use the authenticated /jobs endpoints instead.
 
 
 @app.post("/prompt-test", response_model=PromptTestResponse, tags=["Testing"])
 @limiter.limit("30/minute")
-async def prompt_test(request: Request, body: PromptTestRequest) -> Any:
-    """Test a prompt with variables."""
+async def prompt_test(
+    request: Request,
+    body: PromptTestRequest,
+    user: User = Depends(current_active_user),
+) -> Any:
+    """Test a prompt with variables. Requires authentication."""
     client = LLMClient(
         api_key=body.api_key,
         model=body.model or "gpt-4o-mini",
@@ -303,8 +317,12 @@ async def prompt_test(request: Request, body: PromptTestRequest) -> Any:
 
 @app.post("/compare", response_model=CompareResponse, tags=["Testing"])
 @limiter.limit("10/minute")
-async def compare(request: Request, body: CompareRequest) -> Any:
-    """Compare multiple models on the same prompt."""
+async def compare(
+    request: Request,
+    body: CompareRequest,
+    user: User = Depends(current_active_user),
+) -> Any:
+    """Compare multiple models on the same prompt. Requires authentication."""
     results: list[CompareResult] = []
     for model in body.models:
         client = LLMClient(

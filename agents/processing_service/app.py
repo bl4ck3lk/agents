@@ -1,6 +1,10 @@
 """FastAPI application for processing service."""
 
-from fastapi import FastAPI, HTTPException
+import logging
+import os
+
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from agents.processing_service.processor import get_processor
 from agents.processing_service.schemas import (
@@ -8,6 +12,28 @@ from agents.processing_service.schemas import (
     ProcessRequest,
     ProcessResponse,
 )
+
+logger = logging.getLogger(__name__)
+
+# Internal service authentication via shared secret
+INTERNAL_SERVICE_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
+security = HTTPBearer()
+
+
+def verify_internal_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """Verify the internal service bearer token."""
+    if not INTERNAL_SERVICE_TOKEN:
+        logger.warning(
+            "INTERNAL_SERVICE_TOKEN not set - processing service is unprotected. "
+            "Set INTERNAL_SERVICE_TOKEN env var for production."
+        )
+        return credentials.credentials
+    if credentials.credentials != INTERNAL_SERVICE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid service token")
+    return credentials.credentials
+
 
 app = FastAPI(
     title="Agents Processing Service",
@@ -23,12 +49,17 @@ def health_check() -> HealthResponse:
 
 
 @app.post("/process", response_model=ProcessResponse)
-async def process_job(request: ProcessRequest) -> ProcessResponse:
+async def process_job(
+    request: ProcessRequest,
+    _token: str = Depends(verify_internal_token),
+) -> ProcessResponse:
     """Process a batch LLM job.
 
     This endpoint is called by TaskQ workers to process jobs.
     It downloads the input file from S3, processes each unit through
     the LLM, and uploads results back to S3.
+
+    Requires a valid internal service bearer token.
     """
     processor = get_processor()
 
@@ -36,13 +67,12 @@ async def process_job(request: ProcessRequest) -> ProcessResponse:
         result = await processor.process(request)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Processing job failed")
+        raise HTTPException(status_code=500, detail="Internal processing error") from e
 
 
 def main() -> None:
     """Entrypoint for console script."""
-    import os
-
     import uvicorn
 
     reload = os.environ.get("RELOAD", "").lower() in ("true", "1", "yes")

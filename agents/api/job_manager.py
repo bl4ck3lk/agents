@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agents.adapters import get_adapter
 from agents.api.schemas import RunInfo, RunStatus
-from agents.cli import get_adapter
 from agents.core.engine import PARSE_ERROR_KEY, ProcessingEngine, ProcessingMode
 from agents.core.llm_client import LLMClient
 from agents.core.prompt import PromptTemplate
